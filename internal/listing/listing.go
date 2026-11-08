@@ -1,0 +1,92 @@
+// Package listing defines the common shape every source adapter produces,
+// and the rules for deciding when two postings are the same job.
+//
+// Nothing here touches the network or the database, so it is easy to test.
+package listing
+
+// JobType is what kind of role a listing is.
+type JobType string
+
+const (
+	Internship JobType = "internship"
+	NewGrad    JobType = "new_grad"
+)
+
+// DegreeLevel says whether a bachelor's student can apply.
+type DegreeLevel string
+
+const (
+	BachelorsOK      DegreeLevel = "bachelors_ok"
+	AdvancedRequired DegreeLevel = "advanced_required"
+)
+
+// Posting is one job ad as a single source shows it, for a single season.
+// Adapters turn their raw format (JSON, Markdown, ...) into []Posting.
+type Posting struct {
+	SourceListingID string // the source's own id; stable across fetches
+	Company         string
+	Title           string
+	JobType         JobType
+	Season          string // e.g. "Summer 2027"
+	Locations       []string
+	ApplyURL        string
+	DegreeLevel     DegreeLevel
+	Active          bool // false when the source has marked it closed
+}
+
+// Listing is one real job: all postings that share a dedupe key.
+type Listing struct {
+	Key         string
+	Company     string // display name, from the first posting
+	Title       string // display title, from the first posting
+	JobType     JobType
+	Season      string
+	DegreeLevel DegreeLevel
+	Postings    []Posting
+}
+
+// AnyActive reports whether at least one posting is still open.
+func (l Listing) AnyActive() bool {
+	for _, p := range l.Postings {
+		if p.Active {
+			return true
+		}
+	}
+	return false
+}
+
+// Group merges postings that describe the same job into Listings,
+// keeping the order in which each job was first seen.
+func Group(postings []Posting) []Listing {
+	var listings []Listing
+	indexByKey := map[string]int{}
+
+	for _, p := range postings {
+		// Store cities in one form, so lists from different sources merge cleanly.
+		p.Locations = NormalizeLocations(p.Locations)
+		key := DedupeKey(p)
+
+		i, seen := indexByKey[key]
+		if !seen {
+			indexByKey[key] = len(listings)
+			listings = append(listings, Listing{
+				Key:         key,
+				Company:     p.Company,
+				Title:       p.Title,
+				JobType:     p.JobType,
+				Season:      p.Season,
+				DegreeLevel: p.DegreeLevel,
+				Postings:    []Posting{p},
+			})
+			continue
+		}
+
+		l := &listings[i]
+		l.Postings = append(l.Postings, p)
+		// If any posting accepts bachelor's students, the listing does.
+		if p.DegreeLevel == BachelorsOK {
+			l.DegreeLevel = BachelorsOK
+		}
+	}
+	return listings
+}

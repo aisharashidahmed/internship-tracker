@@ -1,0 +1,10 @@
+[
+  {"id": "a1", "company_name": "Stripe", "title": "Software Engineer Intern", "active": true, "is_visible": true,
+   "terms": ["Summer 2027", "Fall 2027"], "url": "https://stripe.com/jobs/a1",
+   "locations": ["San Francisco, CA", "Seattle, WA"], "degrees": ["Bachelor's", "Master's"]},
+  {"id": "b2", "company_name": "Jane Street", "title": "Quant Research Intern", "active": false, "is_visible": true,
+   "terms": ["Summer 2027"], "url": "https://janestreet.com/b2",
+   "locations": ["New York, NY"], "degrees": ["PhD"]},
+  {"id": "c3", "company_name": "Hidden Co", "title": "Intern", "active": true, "is_visible": false,
+   "terms": ["Summer 2027"], "url": "https://example.com/c3", "locations": [], "degrees": []}
+]
