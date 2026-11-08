@@ -1,6 +1,7 @@
 // Package ingest runs one source end to end:
 //
 //	fetch (skip if unchanged) -> adapter.Parse -> keep target year -> group -> save
+//	-> mark postings the source no longer lists as missing
 //
 // It knows the order of the steps but none of the details: parsing lives in
 // the adapters, matching rules in package listing, SQL in package store.
@@ -69,6 +70,11 @@ func (in *Ingester) Run(ctx context.Context, adapter source.Adapter, opts Option
 	if err != nil {
 		return report, err
 	}
+	// An empty file almost certainly means the format changed and the parser
+	// found nothing it recognizes. Saving it would mark every job stale.
+	if len(postings) == 0 {
+		return report, fmt.Errorf("%s: parsed 0 postings; refusing to save (format changed?)", adapter.Name())
+	}
 	postings = keepYear(postings, in.Year)
 	report.Postings = len(postings)
 
@@ -80,6 +86,18 @@ func (in *Ingester) Run(ctx context.Context, adapter source.Adapter, opts Option
 			}
 			report.Counts[outcome]++
 		}
+
+		// Postings this file no longer lists become "not seen since now".
+		var seen []string
+		for _, p := range postings {
+			seen = append(seen, p.SourceListingID)
+		}
+		stale, err := tx.MarkMissing(ctx, src.ID, seen)
+		if err != nil {
+			return err
+		}
+		report.Counts[store.OutcomeStale] = stale
+
 		// Save the ETag in the same transaction, so we only skip next time
 		// if this run's data was actually stored.
 		return tx.MarkFetched(ctx, src.ID, res.ETag)
@@ -93,10 +111,13 @@ func (in *Ingester) Run(ctx context.Context, adapter source.Adapter, opts Option
 }
 
 // keepYear drops postings for other years, e.g. leftover Summer 2026 roles.
+// Postings with an unknown season are kept: every source we read is a list
+// for one year, so "unknown" can only mean "unknown season of that year".
 func keepYear(postings []listing.Posting, year string) []listing.Posting {
 	var kept []listing.Posting
 	for _, p := range postings {
-		if strings.HasSuffix(strings.TrimSpace(p.Season), year) {
+		season := strings.TrimSpace(p.Season)
+		if season == "" || strings.HasSuffix(season, year) {
 			kept = append(kept, p)
 		}
 	}

@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"internship-tracker/internal/listing"
 )
 
 // A fake server that behaves like GitHub: 304 if you send the current ETag.
@@ -46,5 +48,16 @@ func TestFetchRejectsErrorStatus(t *testing.T) {
 
 	if _, err := fetch(context.Background(), srv.Client(), srv.URL, ""); err == nil {
 		t.Error("expected an error for HTTP 429")
+	}
+}
+
+func TestKeepYearKeepsUnknownSeason(t *testing.T) {
+	got := keepYear([]listing.Posting{
+		{SourceListingID: "a", Season: "Summer 2027"},
+		{SourceListingID: "b", Season: "Summer 2026"},
+		{SourceListingID: "c", Season: ""}, // SpeedyApply title without a season
+	}, "2027")
+	if len(got) != 2 || got[0].SourceListingID != "a" || got[1].SourceListingID != "c" {
+		t.Errorf("keepYear kept %+v, want a and c", got)
 	}
 }

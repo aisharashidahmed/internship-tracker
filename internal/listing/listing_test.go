@@ -61,7 +61,7 @@ func TestNormalizeTitle(t *testing.T) {
 }
 
 func TestNormalizeLocations(t *testing.T) {
-	got := NormalizeLocations([]string{"NYC", "New York, NY", "Remote in USA", "Remote", "Ardmore,  PA"})
+	got := NormalizeLocations([]string{"NYC", "New York, NY", "New York City, NY", "Remote in USA", "Remote", "Ardmore,  PA"})
 	want := []string{"New York, NY", "Remote", "Ardmore, PA"}
 	if strings.Join(got, ";") != strings.Join(want, ";") {
 		t.Errorf("NormalizeLocations = %q, want %q", got, want)

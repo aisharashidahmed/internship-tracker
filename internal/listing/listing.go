@@ -18,6 +18,7 @@ type DegreeLevel string
 const (
 	BachelorsOK      DegreeLevel = "bachelors_ok"
 	AdvancedRequired DegreeLevel = "advanced_required"
+	DegreeUnknown    DegreeLevel = "unknown" // the source doesn't say
 )
 
 // Posting is one job ad as a single source shows it, for a single season.
@@ -27,7 +28,7 @@ type Posting struct {
 	Company         string
 	Title           string
 	JobType         JobType
-	Season          string // e.g. "Summer 2027"
+	Season          string // e.g. "Summer 2027"; "" if the source doesn't say
 	Locations       []string
 	ApplyURL        string
 	DegreeLevel     DegreeLevel
@@ -83,10 +84,21 @@ func Group(postings []Posting) []Listing {
 
 		l := &listings[i]
 		l.Postings = append(l.Postings, p)
-		// If any posting accepts bachelor's students, the listing does.
-		if p.DegreeLevel == BachelorsOK {
-			l.DegreeLevel = BachelorsOK
-		}
+		l.DegreeLevel = MergeDegree(l.DegreeLevel, p.DegreeLevel)
 	}
 	return listings
+}
+
+// MergeDegree combines what two postings of one job say about degrees.
+// If any posting accepts bachelor's students, the job does. A posting that
+// doesn't say (unknown) never overrides one that does.
+func MergeDegree(a, b DegreeLevel) DegreeLevel {
+	switch {
+	case a == BachelorsOK || b == BachelorsOK:
+		return BachelorsOK
+	case a == AdvancedRequired || b == AdvancedRequired:
+		return AdvancedRequired
+	default:
+		return DegreeUnknown
+	}
 }

@@ -93,6 +93,27 @@ func stripSeason(title, season string) string {
 	})
 }
 
+// SeasonFromTitle reads a season written in a title, for sources without a
+// season field: "SWE Intern - Summer 2027" -> "Summer 2027". It returns ""
+// unless the title names both a season and a year; it never guesses.
+func SeasonFromTitle(title string) string {
+	for _, m := range seasonWords.FindAllStringSubmatch(fold(title), -1) {
+		name := seasonName(m[1] + m[2])
+		year := yearDigits.FindString(m[0])
+		if name == "" {
+			continue // a bare year says nothing about the season
+		}
+		if len(year) == 2 {
+			year = "20" + year
+		}
+		return strings.ToUpper(name[:1]) + name[1:] + " " + year
+	}
+	return ""
+}
+
+// yearDigits finds the year inside a season phrase ("summer 27" -> "27").
+var yearDigits = regexp.MustCompile(`\d+`)
+
 // seasonName returns "summer" for "Summer 2027", treating autumn as fall.
 func seasonName(season string) string {
 	words := strings.Fields(fold(season))
@@ -165,13 +186,14 @@ func stripTrailingLocation(words, locations []string) []string {
 
 // locationAliases maps folded spellings to the one form we store.
 var locationAliases = map[string]string{
-	"nyc":           "New York, NY",
-	"new york city": "New York, NY",
-	"new york":      "New York, NY",
-	"new york ny":   "New York, NY",
-	"sf":            "San Francisco, CA",
-	"san francisco": "San Francisco, CA",
-	"south sf":      "South San Francisco, CA",
+	"nyc":              "New York, NY",
+	"new york city":    "New York, NY",
+	"new york city ny": "New York, NY",
+	"new york":         "New York, NY",
+	"new york ny":      "New York, NY",
+	"sf":               "San Francisco, CA",
+	"san francisco":    "San Francisco, CA",
+	"south sf":         "South San Francisco, CA",
 }
 
 // NormalizeLocation returns one form per place. Every remote variant

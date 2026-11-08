@@ -19,15 +19,16 @@ type DuplicatePair struct {
 	Similarity float64 // 0..1, share of title words in common
 }
 
-// PossibleDuplicates finds pairs at the same company and season whose titles
+// PossibleDuplicates finds pairs at the same company, with the same season
+// (or one season unknown), whose titles
 // share at least minSimilarity of their words (after normalization), but
 // were not merged. It is a report for a human: matching stays strict, and
 // this shows what that strictness missed, so rules can be improved.
 func PossibleDuplicates(listings []Candidate, minSimilarity float64) []DuplicatePair {
-	// Only listings at the same company and season can be duplicates.
+	// Only listings at the same company can be duplicates.
 	byGroup := map[string][]Candidate{}
 	for _, c := range listings {
-		g := NormalizeCompany(c.Company) + "|" + fold(c.Season)
+		g := NormalizeCompany(c.Company)
 		byGroup[g] = append(byGroup[g], c)
 	}
 
@@ -39,8 +40,11 @@ func PossibleDuplicates(listings []Candidate, minSimilarity float64) []Duplicate
 		}
 		for i := range group {
 			for j := i + 1; j < len(group); j++ {
+				if !seasonsCompatible(group[i].Season, group[j].Season) {
+					continue
+				}
 				sim := jaccard(words[i], words[j])
-				if sim >= minSimilarity && sim < 1 {
+				if sim >= minSimilarity {
 					pairs = append(pairs, DuplicatePair{A: group[i], B: group[j], Similarity: sim})
 				}
 			}
@@ -55,6 +59,11 @@ func PossibleDuplicates(listings []Candidate, minSimilarity float64) []Duplicate
 		return pairs[i].A.ID < pairs[j].A.ID
 	})
 	return pairs
+}
+
+// seasonsCompatible: equal, or at least one is unknown ("").
+func seasonsCompatible(a, b string) bool {
+	return a == "" || b == "" || fold(a) == fold(b)
 }
 
 // jaccard is |words in both| / |words in either|.

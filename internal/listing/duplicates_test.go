@@ -9,15 +9,20 @@ func TestPossibleDuplicates(t *testing.T) {
 		{ID: 3, Company: "Stripe", Title: "Software Engineer Intern, Payments", Season: "Fall 2027"},   // other season
 		{ID: 4, Company: "Square", Title: "Software Engineer Intern, Payments", Season: "Summer 2027"}, // other company
 		{ID: 5, Company: "Stripe", Title: "Product Designer Intern", Season: "Summer 2027"},            // not similar
+		{ID: 6, Company: "Square", Title: "Software Engineer Intern - Payments", Season: ""},           // season unknown: compatible with #4
 	}
 
 	got := PossibleDuplicates(listings, 0.7)
 
-	if len(got) != 1 {
-		t.Fatalf("got %d pairs, want 1: %+v", len(got), got)
+	if len(got) != 2 {
+		t.Fatalf("got %d pairs, want 2: %+v", len(got), got)
 	}
-	if got[0].A.ID != 1 || got[0].B.ID != 2 {
-		t.Errorf("got pair %d/%d, want 1/2", got[0].A.ID, got[0].B.ID)
+	ids := map[[2]int64]bool{}
+	for _, p := range got {
+		ids[[2]int64{p.A.ID, p.B.ID}] = true
+	}
+	if !ids[[2]int64{1, 2}] || !ids[[2]int64{4, 6}] {
+		t.Errorf("got pairs %v, want 1/2 and 4/6", ids)
 	}
 }
 
