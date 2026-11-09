@@ -126,7 +126,11 @@ const feedFilter = `
 	  AND (NOT $10 OR EXISTS (SELECT 1 FROM starred_companies sc WHERE sc.company_id = l.company_id AND sc.user_id = $6))`
 
 // groupKey is a listing's card: its role_key, or itself if it has none yet.
-const groupKey = `COALESCE(l.role_key, 'id:' || l.id)`
+// COLLATE "C" compares raw bytes: grouping and count(DISTINCT ...) only need
+// equality, and the default language-aware comparison made sorting ~4,000
+// keys take about 30 ms (measured with EXPLAIN ANALYZE) against 7 ms to read
+// the rows themselves.
+const groupKey = `(COALESCE(l.role_key, 'id:' || l.id) COLLATE "C")`
 
 // FeedPosting is one source's posting of a listing.
 type FeedPosting struct {

@@ -7,6 +7,7 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	"encoding/json"
@@ -221,6 +222,24 @@ type Page struct {
 	Page     int             `json:"page"`
 	NextPage int             `json:"next_page,omitempty"` // 0 (omitted) on the last page
 	Cards    []feed.RoleCard `json:"roles"`               // one per role; seasons inside
+
+	timing pageTiming // for the Server-Timing header
+}
+
+// pageTiming is where a feed request's time went. It is sent in the
+// standard Server-Timing header (shown in browsers' developer tools), so
+// slow pages can be explained without guessing:
+//
+//	Server-Timing: feed;dur=12.3, count;dur=4.5, render;dur=2.1
+//
+// feed and count include waiting for a free database connection.
+type pageTiming struct {
+	feed, count, render time.Duration
+}
+
+func (t pageTiming) header() string {
+	ms := func(d time.Duration) string { return strconv.FormatFloat(float64(d.Microseconds())/1000, 'f', 1, 64) }
+	return "feed;dur=" + ms(t.feed) + ", count;dur=" + ms(t.count) + ", render;dur=" + ms(t.render)
 }
 
 // Option is one choice in the filter bar.
@@ -309,10 +328,13 @@ func (s *Server) loadPage(r *http.Request, countsAsVisit bool) (Page, error) {
 
 	q := p.Filters.feedQuery(p.NewSince, userID)
 	q.Limit, q.Offset = PageSize+1, (n-1)*PageSize // one extra card: if it comes back, there's a next page
+	t := time.Now()
 	listings, err := s.feed.Feed(ctx, q)
 	if err != nil {
 		return Page{}, err
 	}
+	p.timing.feed = time.Since(t)
+	t = time.Now()
 	if p.Matching, err = s.feed.CountFeed(ctx, q); err != nil {
 		return Page{}, err
 	}
@@ -322,6 +344,7 @@ func (s *Server) loadPage(r *http.Request, countsAsVisit bool) (Page, error) {
 			return Page{}, err
 		}
 	}
+	p.timing.count = time.Since(t)
 
 	p.Cards = feed.Group(listings, p.NewSince, time.Now(), p.Loc)
 	if len(p.Cards) > PageSize {
@@ -387,8 +410,16 @@ func (s *Server) feedJSON(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	t := time.Now()
+	body, err := json.Marshal(p)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	p.timing.render = time.Since(t)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(p)
+	w.Header().Set("Server-Timing", p.timing.header())
+	w.Write(append(body, '\n'))
 }
 
 func (s *Server) feedPage(w http.ResponseWriter, r *http.Request) {
@@ -397,10 +428,18 @@ func (s *Server) feedPage(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := s.tmpl.ExecuteTemplate(w, "feed.html", p); err != nil {
-		log.Printf("render feed: %v", err) // headers are already sent; just log it
+	// Render into memory first: it lets us time rendering on its own, and a
+	// template error becomes a clean error page instead of half a page.
+	t := time.Now()
+	var buf bytes.Buffer
+	if err := s.tmpl.ExecuteTemplate(&buf, "feed.html", p); err != nil {
+		serverError(w, fmt.Errorf("render feed: %w", err))
+		return
 	}
+	p.timing.render = time.Since(t)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Server-Timing", p.timing.header())
+	w.Write(buf.Bytes())
 }
 
 // serverError logs the real error and shows the visitor a generic one, so
