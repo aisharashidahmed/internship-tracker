@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"internship-tracker/internal/listing"
 )
 
 // FeedListing is one listing as the feed needs it, with all its postings.
@@ -31,18 +33,18 @@ type FeedPosting struct {
 	MissingSince *time.Time // set if the source stopped listing it
 }
 
-// Feed returns one page of visible listings: open before stale, then
-// freshest first (see listings.feed_at), unknown dates last.
-func (s *Store) Feed(ctx context.Context, limit, offset int) ([]FeedListing, error) {
+// Feed returns one page of visible listings of one job type: open before
+// stale, then freshest first (see listings.feed_at), unknown dates last.
+func (s *Store) Feed(ctx context.Context, jobType listing.JobType, limit, offset int) ([]FeedListing, error) {
 	// The ORDER BY matches listings_feed_idx column for column, so Postgres
 	// can read the page straight from the index.
 	rows, err := s.db.Query(ctx, `
 		SELECT l.id, c.name, l.title, l.season, l.degree_level, l.status, l.posted_at, l.first_seen_at
 		FROM listings l JOIN companies c ON c.id = l.company_id
-		WHERE l.status IN ('open', 'stale')
+		WHERE l.status IN ('open', 'stale') AND l.job_type = $1
 		ORDER BY (l.status = 'stale'), l.feed_at DESC NULLS LAST, l.posted_at DESC NULLS LAST, l.id DESC
-		LIMIT $1 OFFSET $2`,
-		limit, offset)
+		LIMIT $2 OFFSET $3`,
+		jobType, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("feed: %w", err)
 	}

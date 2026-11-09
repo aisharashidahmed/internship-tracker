@@ -36,12 +36,18 @@
   details li { margin: 3px 0; }
   a { color: var(--accent); }
   .small { color: var(--muted); font-size: 13px; }
-  nav { display: flex; justify-content: space-between; margin-top: 18px; }
+  nav.pages { display: flex; justify-content: space-between; margin-top: 18px; }
+  .tabs { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin: 10px 0 12px; }
+  .tabs a { padding: 6px 14px; text-decoration: none; color: var(--muted); }
+  .tabs a.on { background: var(--card); color: var(--text); font-weight: 600; }
 </style>
 </head>
 <body>
 <main>
   <h1>Internship feed</h1>
+  <nav class="tabs" aria-label="Job type">
+    {{range .Tabs}}<a href="?type={{.Type}}"{{if eq .Type $.JobType}} class="on" aria-current="page"{{end}}>{{.Label}}</a>{{end}}
+  </nav>
   <p class="sub">Newest first. Listings marked "may be closed" are at the end.</p>
 
   {{range .Cards}}
@@ -74,12 +80,12 @@
     {{end}}
   </article>
   {{else}}
-  <p>No listings yet. Run <code>go run ./cmd/ingest</code>.</p>
+  <p>No listings here yet. New ones are added every hour.</p>
   {{end}}
 
-  <nav>
-    <span>{{if gt .Page 1}}<a href="?page={{subtract .Page 1}}">← Newer</a>{{end}}</span>
-    <span>{{if .NextPage}}<a href="?page={{.NextPage}}">Older →</a>{{end}}</span>
+  <nav class="pages">
+    <span>{{if gt .Page 1}}<a href="?type={{.JobType}}&page={{subtract .Page 1}}">← Newer</a>{{end}}</span>
+    <span>{{if .NextPage}}<a href="?type={{.JobType}}&page={{.NextPage}}">Older →</a>{{end}}</span>
   </nav>
 </main>
 </body>

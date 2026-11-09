@@ -12,18 +12,22 @@ import (
 	"testing"
 	"time"
 
+	"internship-tracker/internal/listing"
 	"internship-tracker/internal/store"
 )
 
 // fakeFeed returns n listings, like a database holding that many.
 type fakeFeed struct {
-	listings []store.FeedListing
+	listings []store.FeedListing // all internships
 	err      error
 }
 
-func (f fakeFeed) Feed(_ context.Context, limit, offset int) ([]store.FeedListing, error) {
+func (f fakeFeed) Feed(_ context.Context, jobType listing.JobType, limit, offset int) ([]store.FeedListing, error) {
 	if f.err != nil {
 		return nil, f.err
+	}
+	if jobType != listing.Internship {
+		return nil, nil
 	}
 	if offset >= len(f.listings) {
 		return nil, nil
@@ -92,6 +96,29 @@ func TestFeedPage_ShowsCards(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("page is missing %q", want)
 		}
+	}
+}
+
+func TestFeed_Toggle(t *testing.T) {
+	f := fakeFeed{listings: listings(2)}
+
+	_, body := get(t, f, "/api/listings") // no ?type: Internships
+	var p Page
+	json.Unmarshal([]byte(body), &p)
+	if p.JobType != listing.Internship || len(p.Cards) != 2 {
+		t.Errorf("default tab: %s with %d cards, want internship with 2", p.JobType, len(p.Cards))
+	}
+
+	_, body = get(t, f, "/api/listings?type=new_grad")
+	p = Page{}
+	json.Unmarshal([]byte(body), &p)
+	if p.JobType != listing.NewGrad || len(p.Cards) != 0 {
+		t.Errorf("new grad tab: %s with %d cards, want new_grad with 0", p.JobType, len(p.Cards))
+	}
+
+	_, html := get(t, f, "/?type=new_grad&page=1")
+	if !strings.Contains(html, `href="?type=new_grad" class="on"`) {
+		t.Error("New grad tab is not highlighted on its own page")
 	}
 }
 

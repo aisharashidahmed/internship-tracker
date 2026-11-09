@@ -13,7 +13,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"time"
 
@@ -21,18 +20,8 @@ import (
 	"internship-tracker/internal/ingest"
 	"internship-tracker/internal/listing"
 	"internship-tracker/internal/source"
-	"internship-tracker/internal/source/simplify"
-	"internship-tracker/internal/source/speedyapply"
 	"internship-tracker/internal/store"
 )
-
-// sources run in this order. Simplify goes first: it has explicit seasons,
-// degrees and closed flags, so its listings are the better base for
-// SpeedyApply postings to join.
-var sources = []source.Adapter{
-	simplify.Adapter{},
-	speedyapply.Adapter{},
-}
 
 func main() {
 	force := flag.Bool("force", false, "download and re-save even if a source hasn't changed")
@@ -45,24 +34,19 @@ func main() {
 	}
 	defer pool.Close()
 
-	in := &ingest.Ingester{
-		Store:  store.New(pool),
-		Client: &http.Client{Timeout: 60 * time.Second},
-		Year:   "2027",
-	}
+	in := ingest.New(store.New(pool))
 
 	failed := 0
-	for _, adapter := range sources {
-		report, err := in.Run(ctx, adapter, ingest.Options{Force: *force})
-		if err != nil {
+	for _, r := range in.RunAll(ctx, source.All(), ingest.Options{Force: *force}) {
+		if r.Err != nil {
 			// Each source runs in its own transaction, so a failure here
 			// leaves that source's data exactly as it was before the run.
 			fmt.Fprintf(os.Stderr, "\nFAILED %s: %v\n  its data was left unchanged; other sources continue\n\n",
-				adapter.Name(), err)
+				r.Report.Source, r.Err)
 			failed++
 			continue
 		}
-		printReport(report)
+		printReport(r.Report)
 	}
 
 	if err := printPossibleDuplicates(ctx, in.Store); err != nil {

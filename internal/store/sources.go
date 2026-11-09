@@ -35,3 +35,20 @@ func (s *Store) MarkFetched(ctx context.Context, sourceID int64, etag string) er
 		sourceID, etag)
 	return err
 }
+
+// TryLockSource takes a lock that only one ingest of this source can hold,
+// so the hourly run and a manual `go run ./cmd/ingest` never write the same
+// source at once. It returns false at once (no waiting) if another run holds
+// it. The lock is released when the transaction ends; call it inside InTx.
+func (s *Store) TryLockSource(ctx context.Context, sourceID int64) (bool, error) {
+	var ok bool
+	// Advisory locks are named by a number; the two-number form
+	// (namespace, id) keeps "ingest" locks apart from any others we add later.
+	err := s.db.QueryRow(ctx,
+		`SELECT pg_try_advisory_xact_lock(hashtext('ingest-source'), $1::int)`, sourceID,
+	).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("lock source %d: %w", sourceID, err)
+	}
+	return ok, nil
+}

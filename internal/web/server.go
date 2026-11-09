@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"internship-tracker/internal/feed"
+	"internship-tracker/internal/listing"
 	"internship-tracker/internal/store"
 )
 
@@ -27,7 +28,7 @@ var templates embed.FS
 // FeedReader is what the server needs from the database. *store.Store
 // satisfies it; tests pass a fake, so they need no database.
 type FeedReader interface {
-	Feed(ctx context.Context, limit, offset int) ([]store.FeedListing, error)
+	Feed(ctx context.Context, jobType listing.JobType, limit, offset int) ([]store.FeedListing, error)
 }
 
 // Server holds what every request needs.
@@ -57,11 +58,25 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
+// Tabs are the job types the feed can show, first one is the default.
+var Tabs = []Tab{
+	{Type: listing.Internship, Label: "Internships"},
+	{Type: listing.NewGrad, Label: "New grad"},
+}
+
+// Tab is one choice in the Internships / New grad toggle.
+type Tab struct {
+	Type  listing.JobType
+	Label string
+}
+
 // Page is one page of the feed; it is also the JSON response body.
 type Page struct {
-	Page     int         `json:"page"`
-	NextPage int         `json:"next_page,omitempty"` // 0 (omitted) on the last page
-	Cards    []feed.Card `json:"listings"`
+	JobType  listing.JobType `json:"job_type"`
+	Tabs     []Tab           `json:"-"` // for the HTML toggle only
+	Page     int             `json:"page"`
+	NextPage int             `json:"next_page,omitempty"` // 0 (omitted) on the last page
+	Cards    []feed.Card     `json:"listings"`
 }
 
 func (s *Server) loadPage(r *http.Request) (Page, error) {
@@ -69,12 +84,18 @@ func (s *Server) loadPage(r *http.Request) (Page, error) {
 	if err != nil || n < 1 {
 		n = 1
 	}
+	jobType := Tabs[0].Type // anything unrecognized shows the default tab
+	for _, t := range Tabs {
+		if string(t.Type) == r.URL.Query().Get("type") {
+			jobType = t.Type
+		}
+	}
 	// Ask for one extra row: if it comes back, there is a next page.
-	listings, err := s.feed.Feed(r.Context(), PageSize+1, (n-1)*PageSize)
+	listings, err := s.feed.Feed(r.Context(), jobType, PageSize+1, (n-1)*PageSize)
 	if err != nil {
 		return Page{}, err
 	}
-	p := Page{Page: n, Cards: []feed.Card{}}
+	p := Page{JobType: jobType, Tabs: Tabs, Page: n, Cards: []feed.Card{}}
 	if len(listings) > PageSize {
 		listings = listings[:PageSize]
 		p.NextPage = n + 1

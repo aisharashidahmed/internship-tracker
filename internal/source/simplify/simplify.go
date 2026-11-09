@@ -52,7 +52,7 @@ func (Adapter) Parse(body []byte) ([]listing.Posting, error) {
 				SourceListingID: r.ID,
 				Company:         r.Company,
 				Title:           r.Title,
-				JobType:         listing.Internship, // this repo only lists internships
+				JobType:         listing.JobTypeFromTitle(r.Title, listing.Internship), // an internship list, with a few new-grad roles
 				Season:          term,
 				Locations:       r.Locations,
 				ApplyURL:        r.URL,

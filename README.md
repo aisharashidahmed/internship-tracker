@@ -13,7 +13,8 @@ createdb internship_tracker_test     # once, for tests
 go run ./cmd/migrate                 # create/update tables
 go run ./cmd/ingest                  # fetch every source and save listings
 go run ./cmd/ingest -force           # ignore saved ETags and re-save everything
-go run ./cmd/server                  # the feed at http://localhost:8080 (JSON: /api/listings)
+go run ./cmd/server                  # feed at http://localhost:8080 + ingest now, then hourly
+go run ./cmd/server -ingest-every=0  # feed only (no ingestion)
 go test ./...                        # all tests (store tests use the _test DB)
 ```
 
@@ -47,9 +48,27 @@ its data is left unchanged, and `ingest` exits with status 1.
 | `stale` | no source says closed, but it vanished from every source that listed it — "may be closed" |
 | `closed` | a source explicitly marked it closed |
 
+## Hourly ingestion
+
+The server ingests every source as soon as it starts, then every hour (no
+catch-up after downtime: each file is a snapshot of right now). An unchanged
+source costs one conditional request: GitHub answers HTTP 304 and nothing is
+parsed or written. Every run logs one line per source, so a quiet hour still
+shows the scheduler is alive:
+
+```
+2026/11/08 20:17:48 simplify: unchanged (HTTP 304) in 30ms
+2026/11/08 20:17:28 speedyapply: 827 postings, 396 new, 336 updated, 1 unchanged, 0 stale, 0 closed in 368ms
+```
+
+A Postgres advisory lock lets only one ingest write a given source at a time,
+so a manual `go run ./cmd/ingest` while the server runs is safe.
+
 ## The feed
 
-One card per listing, open roles first, freshest first; stale ones ("may be
+Two tabs, **Internships** (default) and **New grad**: a title containing
+"New Grad" makes a role new-grad even in an internship list. One card per
+listing, open roles first, freshest first; stale ones ("may be
 closed") go at the end and closed ones are hidden. A card with several job
 links shows "N openings" and expands to list each link (a link both sources
 list counts once).

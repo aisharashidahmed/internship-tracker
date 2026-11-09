@@ -441,7 +441,7 @@ func TestFeed_Order(t *testing.T) {
 	save(simplifyID, false, "5", "Found later", daysAgo(30))
 	markMissing(t, s, "speedyapply") // "Will go stale" vanished from SpeedyApply
 
-	feed, err := s.Feed(ctx, 10, 0)
+	feed, err := s.Feed(ctx, listing.Internship, 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -472,5 +472,38 @@ func TestSave_EarlierPostedDateWins(t *testing.T) {
 
 	if got := scalar[time.Time](t, s, `SELECT posted_at FROM listings`); !got.Equal(early) {
 		t.Errorf("posted_at = %v, want the earlier %v", got, early)
+	}
+}
+
+// --- Slice 5: only one ingest per source at a time ---
+
+func TestTryLockSource_SecondRunIsTurnedAway(t *testing.T) {
+	ctx := context.Background()
+	// Two separate transactions, like the hourly run and a manual run.
+	tx1, err := testPool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx1.Rollback(ctx)
+	tx2, err := testPool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx2.Rollback(ctx)
+	first, second := &Store{db: tx1}, &Store{db: tx2}
+
+	if ok, err := first.TryLockSource(ctx, 1); err != nil || !ok {
+		t.Fatalf("first lock = %v, %v; want true", ok, err)
+	}
+	if ok, _ := second.TryLockSource(ctx, 1); ok {
+		t.Error("second run got the lock while the first holds it")
+	}
+	if ok, _ := second.TryLockSource(ctx, 2); !ok {
+		t.Error("a different source should not be blocked")
+	}
+
+	tx1.Rollback(ctx) // first run ends: its lock is released
+	if ok, _ := second.TryLockSource(ctx, 1); !ok {
+		t.Error("lock not released when the first transaction ended")
 	}
 }

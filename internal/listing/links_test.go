@@ -71,6 +71,23 @@ func TestSeasonFromTitle(t *testing.T) {
 	}
 }
 
+func TestJobTypeFromTitle(t *testing.T) {
+	tests := map[string]JobType{
+		"Engineer 2 New Grad - Multiple Teams": NewGrad,
+		"Software Engineer, New Graduate":      NewGrad,
+		"New College Grad - Software Engineer": NewGrad,
+		"Software Engineer – New Grads 2027":   NewGrad,
+		"Software Engineer Intern":             Internship,
+		"Intern - Graduate Programs Team":      Internship, // "graduate" alone isn't "new grad"
+		"Newgrade Systems Intern":              Internship, // whole words only
+	}
+	for title, want := range tests {
+		if got := JobTypeFromTitle(title, Internship); got != want {
+			t.Errorf("JobTypeFromTitle(%q) = %s, want %s", title, got, want)
+		}
+	}
+}
+
 func TestMergeDegree(t *testing.T) {
 	if MergeDegree(DegreeUnknown, AdvancedRequired) != AdvancedRequired {
 		t.Error("unknown must not override a known level")

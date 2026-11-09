@@ -182,6 +182,22 @@ func stripTrailingLocation(words, locations []string) []string {
 	return words
 }
 
+// --- Job type ----------------------------------------------------------------
+
+// newGradWords mark a new-graduate role even in a list of internships,
+// e.g. "Engineer 2 New Grad - Multiple Teams". Matched on folded titles.
+var newGradWords = regexp.MustCompile(`\bnew (?:college )?grad(?:uate)?s?\b`)
+
+// JobTypeFromTitle returns NewGrad if the title says so, otherwise the
+// source's own job type (fallback). Sources mix a few new-grad roles into
+// their internship lists; the title is the most reliable signal we have.
+func JobTypeFromTitle(title string, fallback JobType) JobType {
+	if newGradWords.MatchString(fold(title)) {
+		return NewGrad
+	}
+	return fallback
+}
+
 // --- Locations ---------------------------------------------------------------
 
 // locationAliases maps folded spellings to the one form we store.

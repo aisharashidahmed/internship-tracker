@@ -89,7 +89,7 @@ func parseRow(cells []string, columns map[string]int, now time.Time) (listing.Po
 		SourceListingID: id,
 		Company:         text(cells[columns["Company"]]),
 		Title:           title,
-		JobType:         listing.Internship, // README.md only lists internships
+		JobType:         listing.JobTypeFromTitle(title, listing.Internship), // an internship list, with a few new-grad roles
 		Season:          listing.SeasonFromTitle(title),
 		Locations:       locations(text(cells[columns["Location"]])),
 		ApplyURL:        applyURL,

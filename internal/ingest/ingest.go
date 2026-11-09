@@ -9,6 +9,7 @@ package ingest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -26,6 +27,19 @@ type Ingester struct {
 	Year   string // only seasons ending in this year are kept, e.g. "2027"
 }
 
+// TargetYear is the year whose listings we keep.
+const TargetYear = "2027"
+
+// New returns an Ingester with the settings both cmd/ingest and the
+// server use.
+func New(st *store.Store) *Ingester {
+	return &Ingester{
+		Store:  st,
+		Client: &http.Client{Timeout: 60 * time.Second}, // never hang on a slow download
+		Year:   TargetYear,
+	}
+}
+
 // Options change a single run.
 type Options struct {
 	// Force downloads and re-saves even if the source says nothing changed.
@@ -40,6 +54,10 @@ type Report struct {
 	Counts      map[store.Outcome]int
 	Took        time.Duration
 }
+
+// ErrBusy means another ingest of the same source was writing at the same
+// moment, so this run skipped its writes; the other run saves the same data.
+var ErrBusy = errors.New("another ingest of this source is running; skipped")
 
 // Run ingests one source. All writes happen in one transaction, so a failed
 // run leaves the database (and the saved ETag) exactly as it was.
@@ -79,6 +97,11 @@ func (in *Ingester) Run(ctx context.Context, adapter source.Adapter, opts Option
 	report.Postings = len(postings)
 
 	err = in.Store.InTx(ctx, func(tx *store.Store) error {
+		if ok, err := tx.TryLockSource(ctx, src.ID); err != nil {
+			return err
+		} else if !ok {
+			return ErrBusy
+		}
 		for _, l := range listing.Group(postings) {
 			outcome, err := tx.SaveListing(ctx, src.ID, l, src.FirstLoad)
 			if err != nil {
