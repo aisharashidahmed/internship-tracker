@@ -1,0 +1,26 @@
+{{template "head" .Title}}
+{{template "header" .}}
+<main>
+  <div class="auth">
+    <h1>{{.Title}}</h1>
+    {{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
+
+    {{if and (eq .Mode "signup") (not .InviteOK)}}
+      <p>Sign-up is invite-only, and this link is invalid, expired, or already used. Ask whoever sent it for a new one.</p>
+      <p>Already have an account? <a href="/login">Log in</a>.</p>
+    {{else}}
+    <form method="post" action="/{{.Mode}}">
+      {{if eq .Mode "signup"}}<input type="hidden" name="invite" value="{{.Invite}}">{{end}}
+      <label for="email">Email</label>
+      <input id="email" type="email" name="email" value="{{.Email}}" autocomplete="email" required autofocus>
+      <label for="password">Password</label>
+      <input id="password" type="password" name="password" required
+             {{if eq .Mode "signup"}}minlength="10" autocomplete="new-password"{{else}}autocomplete="current-password"{{end}}>
+      {{if eq .Mode "signup"}}<p class="help">At least 10 characters. A few random words work well.</p>{{end}}
+      <button type="submit">{{if eq .Mode "signup"}}Create account{{else}}Log in{{end}}</button>
+    </form>
+    {{if eq .Mode "login"}}<p class="help">No account? Sign-up is by invite link.</p>{{end}}
+    {{end}}
+  </div>
+</main>
+{{template "foot"}}

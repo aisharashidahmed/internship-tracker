@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"internship-tracker/internal/auth"
 	"internship-tracker/internal/feed"
 	"internship-tracker/internal/listing"
 	"internship-tracker/internal/store"
@@ -39,13 +40,24 @@ type FeedReader interface {
 
 // Server holds what every request needs.
 type Server struct {
-	feed FeedReader
-	tmpl *template.Template
+	feed          FeedReader
+	accounts      Accounts
+	tmpl          *template.Template
+	secureCookies bool // set when served over HTTPS behind a proxy
+	emailLimiter  *auth.Limiter
+	ipLimiter     *auth.Limiter
+}
+
+// Options configure a Server.
+type Options struct {
+	// SecureCookies marks the session cookie HTTPS-only. Turn it on in
+	// production; plain http://localhost needs it off.
+	SecureCookies bool
 }
 
 // New parses the templates once, at startup, so a broken template fails
 // immediately instead of on the first request.
-func New(f FeedReader) (*Server, error) {
+func New(f FeedReader, accounts Accounts, opts Options) (*Server, error) {
 	tmpl, err := template.New("").Funcs(template.FuncMap{
 		"ago":           func(t time.Time) string { return ago(t, time.Now()) },
 		"roleLabel":     listing.RoleLabel,
@@ -54,15 +66,28 @@ func New(f FeedReader) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse templates: %w", err)
 	}
-	return &Server{feed: f, tmpl: tmpl}, nil
+	return &Server{
+		feed: f, accounts: accounts, tmpl: tmpl, secureCookies: opts.SecureCookies,
+		emailLimiter: auth.NewLimiter(5, loginWindow),
+		ipLimiter:    auth.NewLimiter(20, loginWindow),
+	}, nil
 }
 
-// Handler returns the routes.
+// Handler returns the routes, wrapped in two layers:
+//   - withUser recognizes the logged-in user from their cookie;
+//   - CrossOriginProtection rejects form posts sent from other websites
+//     (cross-site request forgery), using the browser's Sec-Fetch-Site
+//     and Origin headers.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.feedPage)
 	mux.HandleFunc("GET /api/listings", s.feedJSON)
-	return mux
+	mux.HandleFunc("GET /signup", s.signupPage)
+	mux.HandleFunc("POST /signup", s.signup)
+	mux.HandleFunc("GET /login", s.loginPage)
+	mux.HandleFunc("POST /login", s.login)
+	mux.HandleFunc("POST /logout", s.logout)
+	return http.NewCrossOriginProtection().Handler(s.withUser(mux))
 }
 
 // Filters is what the visitor chose in the filter bar.
@@ -118,6 +143,7 @@ func (f Filters) query(page int) string {
 
 // Page is one page of the feed; it is also the JSON response body.
 type Page struct {
+	User     *store.User `json:"-"` // for the header only
 	Filters  Filters     `json:"filters"`
 	Page     int         `json:"page"`
 	NextPage int         `json:"next_page,omitempty"` // 0 (omitted) on the last page
@@ -180,7 +206,7 @@ func (s *Server) loadPage(r *http.Request) (Page, error) {
 	if err != nil {
 		return Page{}, err
 	}
-	p := Page{Filters: f, Page: n, Cards: []feed.Card{}}
+	p := Page{User: currentUser(r), Filters: f, Page: n, Cards: []feed.Card{}}
 	if len(listings) > PageSize {
 		listings = listings[:PageSize]
 		p.NextPage = n + 1

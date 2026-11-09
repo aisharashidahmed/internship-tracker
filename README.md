@@ -15,6 +15,7 @@ go run ./cmd/ingest                  # fetch every source and save listings
 go run ./cmd/ingest -force           # ignore saved ETags and re-save everything
 go run ./cmd/server                  # feed at http://localhost:8080 + ingest now, then hourly
 go run ./cmd/server -ingest-every=0  # feed only (no ingestion)
+go run ./cmd/invite -note "Jordan"   # print a one-time sign-up link (-uses 50 for a group link)
 go test ./...                        # all tests (store tests use the _test DB)
 ```
 
@@ -97,6 +98,20 @@ keyword matches nobody has approved yet; move each to *approved* or *never*.
 Roles match **any** ("Backend / ML") or **all** ("Backend + ML"); different
 filter groups always combine with AND.
 
+## Accounts
+
+The feed is public; an account adds personal features. Sign-up is
+**invite-only**: `go run ./cmd/invite` prints a link (single-use by default,
+`-uses N` for a group, `-days N` to expire). Logins last 30 days and renew
+while you use the site.
+
+- Passwords: at least 10 characters (no symbol rules), stored as bcrypt hashes.
+- Sessions: a random token in an `HttpOnly`, `SameSite=Lax` cookie (`Secure`
+  with `COOKIE_SECURE=1`); the database stores only its SHA-256 hash.
+- Failed logins are limited per email (5) and per IP (20) per 15 minutes.
+- Form posts from other websites are rejected (Go's `CrossOriginProtection`).
+- Messages never reveal whether an email has an account.
+
 ## How the code is laid out
 
 Data flows one way: **source file → postings → listings → database**.
@@ -107,6 +122,7 @@ Data flows one way: **source file → postings → listings → database**.
 | `internal/source` | The `Adapter` interface | `listing` |
 | `internal/source/simplify` | Parse Simplify's `listings.json` | `listing` |
 | `internal/source/speedyapply` | Parse SpeedyApply's Markdown tables | `listing` |
+| `internal/auth` | Password hashing, tokens, email/password rules, login rate limiter | — |
 | `internal/feed` | Turns a stored listing into a feed card (city summary, openings) | `store` |
 | `internal/web` | HTML page and JSON API for the feed, one shared loader | `feed`, `store` |
 | `internal/store` | All SQL: find/create listings (by job link, then key), save postings, status | `listing` |

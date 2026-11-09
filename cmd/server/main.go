@@ -43,11 +43,17 @@ func main() {
 		in := ingest.New(st)
 		go ingest.Every(ctx, *every, func(ctx context.Context) {
 			ingest.LogResults(in.RunAll(ctx, source.All(), ingest.Options{}))
+			if n, err := st.DeleteExpiredSessions(ctx); err != nil {
+				log.Printf("delete expired sessions: %v", err)
+			} else if n > 0 {
+				log.Printf("deleted %d expired session(s)", n)
+			}
 		})
 		log.Printf("ingesting now, then every %s", *every)
 	}
 
-	s, err := web.New(st)
+	// COOKIE_SECURE=1 in production (HTTPS); plain http://localhost needs it off.
+	s, err := web.New(st, st, web.Options{SecureCookies: os.Getenv("COOKIE_SECURE") == "1"})
 	if err != nil {
 		log.Fatal(err)
 	}

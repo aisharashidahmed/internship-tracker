@@ -612,3 +612,114 @@ func TestSyncIndustries_RemovesTagsTheRulesNoLongerGive(t *testing.T) {
 		t.Errorf("Medical Properties Trust still tagged healthcare")
 	}
 }
+
+// --- Slice 7: accounts ---
+
+func TestDB_EmailIsUniqueIgnoringCase(t *testing.T) {
+	s := newTestStore(t)
+	q := `INSERT INTO users (email, password_hash) VALUES ($1, 'x')`
+	if err := exec(t, s, q, "aisha@college.edu"); err != nil {
+		t.Fatal(err)
+	}
+	requireUniqueViolation(t, exec(t, s, q, "Aisha@College.EDU"))
+}
+
+func TestDB_SessionTokenIsUnique(t *testing.T) {
+	s := newTestStore(t)
+	uid := scalar[int64](t, s, `INSERT INTO users (email, password_hash) VALUES ('a@b.co', 'x') RETURNING id`)
+	q := `INSERT INTO sessions (user_id, token_hash, expires_at) VALUES ($1, 'same', now() + interval '1 day')`
+	if err := exec(t, s, q, uid); err != nil {
+		t.Fatal(err)
+	}
+	requireUniqueViolation(t, exec(t, s, q, uid))
+}
+
+func TestDB_InviteCannotBeOverused(t *testing.T) {
+	s := newTestStore(t)
+	err := exec(t, s, `INSERT INTO invites (token_hash, max_uses, uses, expires_at) VALUES ('t', 1, 2, now())`)
+	if err == nil {
+		t.Error("an invite with uses > max_uses was accepted; the CHECK should reject it")
+	}
+}
+
+func TestSignUp(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	token, err := s.CreateInvite(ctx, "two seats", 2, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.SignUp(ctx, token, "aisha@college.edu", "hash"); err != nil {
+		t.Fatalf("first sign-up: %v", err)
+	}
+	// Same email, different case: refused, and the seat is not used up.
+	if _, err := s.SignUp(ctx, token, "AISHA@college.edu", "hash"); !errors.Is(err, ErrEmailTaken) {
+		t.Errorf("duplicate email err = %v, want ErrEmailTaken", err)
+	}
+	if _, err := s.SignUp(ctx, token, "friend@college.edu", "hash"); err != nil {
+		t.Errorf("second seat: %v", err)
+	}
+	// Both seats used.
+	if _, err := s.SignUp(ctx, token, "third@college.edu", "hash"); !errors.Is(err, ErrInviteInvalid) {
+		t.Errorf("third sign-up err = %v, want ErrInviteInvalid", err)
+	}
+	if _, err := s.SignUp(ctx, "made-up-token", "x@college.edu", "hash"); !errors.Is(err, ErrInviteInvalid) {
+		t.Errorf("unknown invite err = %v, want ErrInviteInvalid", err)
+	}
+
+	u, found, err := s.UserByEmail(ctx, "Aisha@College.edu")
+	if err != nil || !found || u.Email != "aisha@college.edu" || u.PasswordHash != "hash" {
+		t.Errorf("UserByEmail = %+v, %v, %v", u, found, err)
+	}
+}
+
+func TestSignUp_ExpiredInvite(t *testing.T) {
+	s := newTestStore(t)
+	token, _ := s.CreateInvite(context.Background(), "", 1, -time.Minute) // already expired
+	if _, err := s.SignUp(context.Background(), token, "a@b.co", "h"); !errors.Is(err, ErrInviteInvalid) {
+		t.Errorf("err = %v, want ErrInviteInvalid", err)
+	}
+}
+
+func TestSessions(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	uid := scalar[int64](t, s, `INSERT INTO users (email, password_hash) VALUES ('a@b.co', 'x') RETURNING id`)
+
+	token, _, err := s.CreateSession(ctx, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := scalar[int](t, s, `SELECT count(*) FROM sessions WHERE token_hash::text LIKE '%' || $1 || '%'`, token); n != 0 {
+		t.Error("the raw token is stored; only its hash should be")
+	}
+
+	u, found, renewed, _, err := s.SessionUser(ctx, token)
+	if err != nil || !found || u.ID != uid || renewed {
+		t.Fatalf("SessionUser = %+v found=%v renewed=%v err=%v", u, found, renewed, err)
+	}
+
+	// Not used for two hours: the next request renews it.
+	exec(t, s, `UPDATE sessions SET last_used_at = now() - interval '2 hours', expires_at = now() + interval '1 day'`)
+	_, _, renewed, expires, _ := s.SessionUser(ctx, token)
+	if !renewed || time.Until(expires) < 29*24*time.Hour {
+		t.Errorf("renewed=%v expires in %s; want renewed to ~30 days", renewed, time.Until(expires))
+	}
+
+	// Expired: unknown.
+	exec(t, s, `UPDATE sessions SET expires_at = now() - interval '1 second'`)
+	if _, found, _, _, _ := s.SessionUser(ctx, token); found {
+		t.Error("an expired session still logs in")
+	}
+	if n, _ := s.DeleteExpiredSessions(ctx); n != 1 {
+		t.Errorf("deleted %d expired sessions, want 1", n)
+	}
+
+	// Logout.
+	token, _, _ = s.CreateSession(ctx, uid)
+	s.DeleteSession(ctx, token)
+	if _, found, _, _, _ := s.SessionUser(ctx, token); found {
+		t.Error("session still works after logout")
+	}
+}
