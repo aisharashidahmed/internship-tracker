@@ -67,10 +67,17 @@ so a manual `go run ./cmd/ingest` while the server runs is safe.
 
 ## The feed
 
-A warm "sunset" design (coral, amber, plum) in light and dusk-dark mode; every
-text/background color pair meets WCAG 4.5:1 contrast. On desktop, filters sit
-in a left sidebar beside a two-column grid; on phones, one column, and the
-filters slide up from a **Filters** button (all tap targets 44px or more).
+Colors come from five: Wild Berry `#621E3E` (buttons, headings; dark-mode
+backgrounds), Chrysanthemum `#D9828D` (selected filters, links), Cypress
+`#667436` ("Posted today"), Bamboo `#C6C954` (secondary chips) and Ylang Ylang
+`#FFEC8E` ("New for you"; the light-mode background tint). Every text/background
+pair meets WCAG AA (4.5:1); where a raw color didn't, a deeper shade is used
+(e.g. light-mode links are `#A13D52`). Text is 17px on laptops and up.
+
+On desktop, filters sit in a 260px sidebar and cards fill columns of at least
+380px: 2 on a laptop, 3 on a big monitor (the page is about 1400px wide, 1680px
+from 1920px screens). On phones, one column, and the filters slide up from a
+**Filters** button (all tap targets 44px or more).
 
 - **Search** company or title; a **live count** ("312 roles match") updates as
   you type or change filters.

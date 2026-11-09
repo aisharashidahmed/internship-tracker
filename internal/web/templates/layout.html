@@ -12,39 +12,52 @@
 <title>{{.}}</title>
 <script>document.documentElement.classList.add("js")</script>
 <style>
+  /* Palette: Wild Berry #621E3E, Chrysanthemum #D9828D, Cypress #667436,
+     Bamboo #C6C954, Ylang Ylang #FFEC8E. Shades were adjusted where the raw
+     color would fail WCAG AA (e.g. links use a deeper Chrysanthemum). */
   :root {
-    --bg: #fbf6f1; --surface: #ffffff; --surface-2: #fdf1ea; --text: #2b2233; --muted: #695a6c;
-    --line: #efe0d6; --coral: #c2412d; --on-coral: #ffffff; --link: #b03a27; --plum: #6d3f80;
-    --amber: #f2a33a; --shadow: 0 1px 2px rgba(80, 40, 30, .06), 0 6px 18px rgba(80, 40, 30, .06);
-    --sunset: linear-gradient(135deg, #f7a35c, #e8594a 55%, #8e4a9c);
+    --bg: #FFFBE8; --surface: #FFFFFF; --surface-2: #FFF3C4; --text: #3A1024; --heading: #621E3E;
+    --muted: #6B4656; --line: #EAD9C2; --link: #A13D52;
+    --primary: #621E3E; --on-primary: #FFF8D6;        /* buttons: Wild Berry */
+    --selected: #D9828D; --on-selected: #3A1024;      /* chosen filters: Chrysanthemum */
+    --shadow: 0 1px 2px rgba(98, 30, 62, .06), 0 6px 18px rgba(98, 30, 62, .07);
+    --brand: linear-gradient(135deg, #FFEC8E, #D9828D 50%, #621E3E);
 
-    --c-general_swe: #eceaf1; --t-general_swe: #45405a;  --c-backend: #dff3ef; --t-backend: #1d5f53;
-    --c-frontend: #e2effb;    --t-frontend: #1f4f7a;     --c-ml: #efe4fa;      --t-ml: #5b2d86;
-    --c-ai: #fbe3f1;          --t-ai: #8a2463;           --c-data: #fdecd8;    --t-data: #7f4612;
-    --c-pm: #fde4e1;          --t-pm: #963227;           --c-quant: #e3e7fb;   --t-quant: #33408f;
-    --c-hardware: #ecefd9;    --t-hardware: #4f5a17;     --c-healthcare: #dcf3e3; --t-healthcare: #1c6b3b;
-    --c-today: #fdeccb;       --t-today: #7a4a00;        --c-warn: #fbe7d6;    --t-warn: #8a3d0c;
+    --c-general_swe: #F0E4E8; --t-general_swe: #5A2A3E;  --c-backend: #E6EBD6;  --t-backend: #4A5527;
+    --c-frontend: #F8DFE2;    --t-frontend: #8A3446;     --c-ml: #EBDDF0;       --t-ml: #5C2D6E;
+    --c-ai: #F6D9E6;          --t-ai: #7A2350;           --c-data: #F3F2CC;     --t-data: #4F5214;
+    --c-pm: #FFF1BD;          --t-pm: #6B4E00;           --c-quant: #E2E6EF;    --t-quant: #34405E;
+    --c-hardware: #EDE7DA;    --t-hardware: #5A4A2C;     --c-healthcare: #D8EEEA; --t-healthcare: #1E5F57;
+    --c-today: #667436;       --t-today: #FFFFFF;        /* Cypress */
+    --c-new: #FFEC8E;         --t-new: #621E3E;          /* Ylang Ylang */
+    --c-bamboo: #C6C954;      --t-bamboo: #2E2A10;       /* Bamboo: secondary chips */
+    --c-warn: #F8E0CF;        --t-warn: #7E3A10;
 
-    --a0: #ffd9cf; --at0: #8f2f1d; --a1: #ffe7c2; --at1: #7a4800; --a2: #ead7f5; --at2: #5e2f7a;
-    --a3: #ffd6e3; --at3: #8c2148; --a4: #d3efec; --at4: #1f5e58; --a5: #ffe0d1; --at5: #8a3b17;
-    --a6: #e2ddf8; --at6: #3f3685; --a7: #f6ecc3; --at7: #6b5400;
+    --a0: #F6D9E6; --at0: #621E3E; --a1: #F8DFE2; --at1: #8A3446; --a2: #E6EBD6; --at2: #4A5527;
+    --a3: #F3F2CC; --at3: #4F5214; --a4: #FFF1BD; --at4: #6B4E00; --a5: #EBDDF0; --at5: #5C2D6E;
+    --a6: #D8EEEA; --at6: #1E5F57; --a7: #EDE7DA; --at7: #5A4A2C;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #1c1830; --surface: #262040; --surface-2: #2e2750; --text: #f6edf0; --muted: #b9acc5;
-      --line: #3c3360; --coral: #ff8f7a; --on-coral: #2a1220; --link: #ffaa96; --plum: #d3a9ea;
-      --amber: #ffc46b; --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .25);
+      --bg: #1E0A14; --surface: #2B1020; --surface-2: #3A1629; --text: #FFF6D2; --heading: #FFEC8E;
+      --muted: #E2C9BC; --line: #4D2238; --link: #ECA7B0;
+      --primary: #D9828D; --on-primary: #2A0B19;
+      --selected: #D9828D; --on-selected: #2A0B19;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 8px 24px rgba(0, 0, 0, .3);
 
-      --c-general_swe: #35304d; --t-general_swe: #d9d4ec; --c-backend: #173d38; --t-backend: #9ee3d3;
-      --c-frontend: #1b3350;    --t-frontend: #a8cdf3;    --c-ml: #352552;      --t-ml: #d6b8f5;
-      --c-ai: #46213c;          --t-ai: #f6b3dc;          --c-data: #43301c;    --t-data: #f8c690;
-      --c-pm: #4a2427;          --t-pm: #ffb7aa;          --c-quant: #252c55;   --t-quant: #b9c3fa;
-      --c-hardware: #33381c;    --t-hardware: #d3dc9a;    --c-healthcare: #163d26; --t-healthcare: #93e0b0;
-      --c-today: #4a3714;       --t-today: #ffd27a;       --c-warn: #4a2b17;    --t-warn: #ffc09a;
+      --c-general_swe: #3D2030; --t-general_swe: #F2D6E0; --c-backend: #2E3418;  --t-backend: #D8E2A8;
+      --c-frontend: #4A1E2A;    --t-frontend: #F4BCC4;    --c-ml: #3A2245;       --t-ml: #E2C4EE;
+      --c-ai: #4A1830;          --t-ai: #F7B5D4;          --c-data: #3A3A12;     --t-data: #E6E89A;
+      --c-pm: #453812;          --t-pm: #FFE38A;          --c-quant: #252B3D;    --t-quant: #C9D3EE;
+      --c-hardware: #3A3122;    --t-hardware: #E6D7B4;    --c-healthcare: #163C38; --t-healthcare: #9FE0D4;
+      --c-today: #667436;       --t-today: #FFFBE8;
+      --c-new: #FFEC8E;         --t-new: #3A1024;
+      --c-bamboo: #C6C954;      --t-bamboo: #2E2A10;
+      --c-warn: #4A2A16;        --t-warn: #FFC59E;
 
-      --a0: #5a2a24; --at0: #ffc2b3; --a1: #523a17; --at1: #ffd592; --a2: #3f2b55; --at2: #dcbaf3;
-      --a3: #55233a; --at3: #ffb6cc; --a4: #1f4744; --at4: #a5e1d9; --a5: #553022; --at5: #ffc4a6;
-      --a6: #2f2b57; --at6: #c7befa; --a7: #4a4219; --at7: #ecd98a;
+      --a0: #4A1830; --at0: #F7B5D4; --a1: #4A1E2A; --at1: #F4BCC4; --a2: #2E3418; --at2: #D8E2A8;
+      --a3: #3A3A12; --at3: #E6E89A; --a4: #453812; --at4: #FFE38A; --a5: #3A2245; --at5: #E2C4EE;
+      --a6: #163C38; --at6: #9FE0D4; --a7: #3A3122; --at7: #E6D7B4;
     }
   }
 
@@ -52,23 +65,24 @@
   html { -webkit-text-size-adjust: 100%; }
   body { margin: 0; background: var(--bg); color: var(--text);
          font: 16px/1.55 ui-rounded, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  @media (min-width: 1200px) { body { font-size: 17px; } }  /* laptops and up: a little larger */
   a { color: var(--link); }
-  :focus-visible { outline: 3px solid var(--coral); outline-offset: 2px; border-radius: 8px; }
-  h1, h2 { line-height: 1.2; }
-  main { max-width: 1200px; margin: 0 auto; padding: 24px 20px 96px; }
+  :focus-visible { outline: 3px solid var(--selected); outline-offset: 2px; border-radius: 8px; }
+  h1, h2 { line-height: 1.2; color: var(--heading); }
+  main { max-width: 1400px; margin: 0 auto; padding: 24px 20px 96px; }
   .sub { color: var(--muted); margin: 0 0 20px; }
 
   /* Header */
   .site { display: flex; align-items: center; justify-content: space-between; gap: 12px;
-          max-width: 1200px; margin: 0 auto; padding: 16px 20px 0; font-size: 15px; }
-  .brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 800; color: var(--text); text-decoration: none; font-size: 17px; }
-  .brand::before { content: ""; width: 26px; height: 26px; border-radius: 50%; background: var(--sunset); }
+          max-width: 1400px; margin: 0 auto; padding: 18px 20px 0; font-size: 15px; }
+  .brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 800; color: var(--heading); text-decoration: none; font-size: 17px; }
+  .brand::before { content: ""; width: 26px; height: 26px; border-radius: 50%; background: var(--brand); }
   .account { display: flex; align-items: center; gap: 14px; color: var(--muted); flex-wrap: wrap; justify-content: flex-end; }
   .account form { margin: 0; }
   .linkbtn { background: none; border: 0; padding: 0; font: inherit; color: var(--link); cursor: pointer; text-decoration: underline; }
 
   /* Chips and buttons */
-  .chip { display: inline-flex; align-items: center; font-size: 13px; line-height: 1; padding: 6px 10px; border-radius: 999px;
+  .chip { display: inline-flex; align-items: center; font-size: 13.5px; line-height: 1; padding: 6px 11px; border-radius: 999px;
           background: var(--c-general_swe); color: var(--t-general_swe); font-weight: 600; text-decoration: none; white-space: nowrap; }
   .chip.role-general_swe { background: var(--c-general_swe); color: var(--t-general_swe); }
   .chip.role-backend { background: var(--c-backend); color: var(--t-backend); }
@@ -81,24 +95,23 @@
   .chip.role-hardware { background: var(--c-hardware); color: var(--t-hardware); }
   .chip.industry-healthcare { background: var(--c-healthcare); color: var(--t-healthcare); }
   .chip.today { background: var(--c-today); color: var(--t-today); }
-  .chip.new { background: var(--coral); color: var(--on-coral); }
+  .chip.new { background: var(--c-new); color: var(--t-new); }
   .chip.warn { background: var(--c-warn); color: var(--t-warn); }
-  .chip.stage { background: var(--c-healthcare); color: var(--t-healthcare); }
-  .chip.plain { background: var(--surface-2); color: var(--muted); }
+  .chip.stage, .chip.plain { background: var(--c-bamboo); color: var(--t-bamboo); }
   .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 8px 18px;
-         border-radius: 12px; border: 0; background: var(--coral); color: var(--on-coral); font: inherit; font-weight: 700;
+         border-radius: 12px; border: 0; background: var(--primary); color: var(--on-primary); font: inherit; font-weight: 700;
          text-decoration: none; cursor: pointer; white-space: nowrap; }
   .btn-quiet { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 8px 14px;
                border-radius: 12px; border: 1.5px solid var(--line); background: var(--surface); color: var(--text);
                font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; }
-  .btn-quiet:hover { border-color: var(--coral); }
+  .btn-quiet:hover { border-color: var(--selected); }
 
   /* Panels, forms (application pages, login) */
   .card { background: var(--surface); border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow); }
   .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 20px 22px; margin: 18px 0; box-shadow: var(--shadow); }
   .panel h2 { font-size: 17px; margin: 0 0 12px; }
-  .title { font-size: 18px; font-weight: 750; line-height: 1.3; margin: 0; }
-  .company { font-size: 15px; font-weight: 600; color: var(--plum); }
+  .title { font-size: 20px; font-weight: 750; line-height: 1.3; margin: 0; color: var(--heading); }
+  .company { font-size: 16px; font-weight: 650; color: var(--text); }
   .meta { color: var(--muted); font-size: 14px; }
   .meta span + span::before { content: "·"; margin: 0 7px; }
   .help { color: var(--muted); font-size: 14px; margin: 10px 0 0; }
@@ -117,7 +130,7 @@
 
   /* Application pages */
   a.card.app-row { display: block; padding: 18px 20px; margin-bottom: 12px; text-decoration: none; color: inherit; }
-  a.card.app-row:hover { border-color: var(--coral); }
+  a.card.app-row:hover { border-color: var(--selected); }
   .group { margin-bottom: 28px; }
   .group-title { font-size: 18px; margin: 0 0 10px; }
   .count { color: var(--muted); font-weight: 500; }
@@ -126,13 +139,17 @@
   .stage-buttons form { margin: 0; }
   .stage-btn { min-height: 44px; padding: 8px 16px; border-radius: 999px; border: 1.5px solid var(--line); background: var(--surface);
                color: var(--text); font: inherit; font-size: 15px; cursor: pointer; }
-  .stage-btn.on { background: var(--coral); border-color: var(--coral); color: var(--on-coral); font-weight: 700; }
+  .stage-btn.on { background: var(--selected); border-color: var(--selected); color: var(--on-selected); font-weight: 700; }
   .details { display: grid; gap: 6px; max-width: 560px; }
   .details label { font-weight: 700; margin-top: 10px; }
   .details button { margin-top: 16px; justify-self: start; }
   .history { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
   .when { color: var(--muted); font-size: 14px; margin-left: 6px; }
   .danger { margin-top: 24px; }
+
+  /* Page width: about 1400px, growing on big monitors so cards get a third
+     column. Kept last: it must come after the base max-width rules to win. */
+  @media (min-width: 1920px) { main, .site { max-width: 1680px; } }
 </style>
 </head>
 <body>
