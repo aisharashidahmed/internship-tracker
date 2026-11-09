@@ -1,0 +1,26 @@
+{{template "head" "My applications"}}
+{{template "header" .}}
+<main>
+  <h1>My applications</h1>
+  <p class="sub">{{.Total}} tracked. Furthest along first.</p>
+
+  {{range .Groups}}
+  <section class="group">
+    <h2 class="group-title">{{.Label}} <span class="count">{{len .Apps}}</span></h2>
+    {{range .Apps}}
+    <a class="card app-row" href="/applications/{{.ID}}">
+      <div>
+        <div class="title">{{.Title}}</div>
+        <div class="company">{{.Company}}</div>
+        <div class="meta">
+          <span>{{.StageLabel}}{{if and .ExpectedRounds .InterviewRound}} of {{.ExpectedRounds}}{{end}}</span>{{if .AppliedOn}}<span>applied {{.AppliedOn.Format "Jan 2"}}</span>{{end}}{{if .ResumeLabel}}<span>{{.ResumeLabel}}</span>{{end}}{{if eq .ListingStatus "closed"}}<span>listing closed</span>{{else if eq .ListingStatus "stale"}}<span>listing may be closed</span>{{end}}
+        </div>
+      </div>
+    </a>
+    {{end}}
+  </section>
+  {{else}}
+  <div class="empty">Nothing tracked yet. Use <strong>Save</strong> or <strong>Applied</strong> on any card in the <a href="/">feed</a>.</div>
+  {{end}}
+</main>
+{{template "foot"}}

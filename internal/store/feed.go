@@ -20,10 +20,14 @@ type FeedListing struct {
 	Status      string     // StatusOpen or StatusStale
 	PostedAt    *time.Time // nil if no source says
 	FirstSeenAt time.Time
-	FeedAt      *time.Time    // what the feed sorts by and "new" compares; nil if unknown
-	Roles       []string      // role tags, e.g. ["backend", "ml"]
-	Industries  []string      // the company's industry tags
-	Postings    []FeedPosting // in the order we first stored them
+	FeedAt      *time.Time // what the feed sorts by and "new" compares; nil if unknown
+	// The viewer's application, if they have one (nil otherwise).
+	ApplicationID  *int64
+	Stage          *string
+	InterviewRound *int
+	Roles          []string      // role tags, e.g. ["backend", "ml"]
+	Industries     []string      // the company's industry tags
+	Postings       []FeedPosting // in the order we first stored them
 }
 
 // FeedQuery says which listings to show. Filters in different groups
@@ -40,8 +44,12 @@ type FeedQuery struct {
 	// NewSince is nil for logged-out visitors; OnlyNew then does nothing.
 	OnlyNew  bool
 	NewSince *time.Time
-	Limit    int
-	Offset   int
+	// UserID is the viewer (0 when logged out). Listings they've applied
+	// to are hidden unless ShowApplied; saved ones always show.
+	UserID      int64
+	ShowApplied bool
+	Limit       int
+	Offset      int
 }
 
 // args returns the filter values in the order feedFilter numbers them.
@@ -58,15 +66,23 @@ func (q FeedQuery) args() []any {
 	if q.OnlyNew {
 		newSince = q.NewSince
 	}
-	return []any{q.JobType, roles, q.MatchAllRoles, industries, newSince}
+	var userID *int64
+	if q.UserID != 0 {
+		userID = &q.UserID
+	}
+	return []any{q.JobType, roles, q.MatchAllRoles, industries, newSince, userID, q.ShowApplied}
 }
 
 // feedFilter is the WHERE clause shared by Feed and CountFeed, so the
-// "N new" count always agrees with the cards shown. Parameters $1-$5 come
+// "N new" count always agrees with the cards shown. Parameters $1-$7 come
 // from FeedQuery.args.
 const feedFilter = `
 	FROM listings l JOIN companies c ON c.id = l.company_id
+	-- the viewer's own application, if any ($6 is NULL when logged out)
+	LEFT JOIN applications ua ON ua.listing_id = l.id AND ua.user_id = $6
 	WHERE l.status IN ('open', 'stale') AND l.job_type = $1
+	  -- the feed is "what to apply to next": applied ones only on request
+	  AND ($7 OR ua.id IS NULL OR ua.stage = 'saved')
 	  -- roles: none chosen, or "all" and it has every one, or "any" and it has one
 	  AND (cardinality($2::text[]) = 0
 	       OR (SELECT count(*) FROM listing_roles lr WHERE lr.listing_id = l.id AND lr.role = ANY($2))
@@ -94,11 +110,12 @@ func (s *Store) Feed(ctx context.Context, q FeedQuery) ([]FeedListing, error) {
 	// in feed order and stop once it has a page of matching rows.
 	rows, err := s.db.Query(ctx, `
 		SELECT l.id, c.name, l.title, l.season, l.degree_level, l.status, l.posted_at, l.first_seen_at, l.feed_at,
+		       ua.id, ua.stage, ua.interview_round,
 		       ARRAY(SELECT role FROM listing_roles WHERE listing_id = l.id),
 		       ARRAY(SELECT industry FROM company_industries WHERE company_id = l.company_id ORDER BY industry)
 		`+feedFilter+`
 		ORDER BY (l.status = 'stale'), l.feed_at DESC NULLS LAST, l.posted_at DESC NULLS LAST, l.id DESC
-		LIMIT $6 OFFSET $7`,
+		LIMIT $8 OFFSET $9`,
 		append(q.args(), q.Limit, q.Offset)...)
 	if err != nil {
 		return nil, fmt.Errorf("feed: %w", err)
@@ -106,7 +123,7 @@ func (s *Store) Feed(ctx context.Context, q FeedQuery) ([]FeedListing, error) {
 	listings, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (FeedListing, error) {
 		var l FeedListing
 		err := row.Scan(&l.ID, &l.Company, &l.Title, &l.Season, &l.DegreeLevel, &l.Status, &l.PostedAt, &l.FirstSeenAt,
-			&l.FeedAt, &l.Roles, &l.Industries)
+			&l.FeedAt, &l.ApplicationID, &l.Stage, &l.InterviewRound, &l.Roles, &l.Industries)
 		return l, err
 	})
 	if err != nil {

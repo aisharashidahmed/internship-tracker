@@ -1,0 +1,58 @@
+{{template "head" .App.Title}}
+{{template "header" .}}
+<main>
+  <p class="sub"><a href="/applications">← My applications</a></p>
+  <h1 class="title-lg">{{.App.Title}}</h1>
+  <div class="company">{{.App.Company}}{{if .App.Season}} · {{.App.Season}}{{end}}</div>
+  <p class="meta">Now: <strong>{{.StageLabel}}</strong>{{if and .App.ExpectedRounds .App.InterviewRound}} of {{.App.ExpectedRounds}} expected{{end}}{{if eq .App.ListingStatus "closed"}} · the listing has closed{{end}}</p>
+
+  {{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
+
+  <section class="panel">
+    <h2>Move to</h2>
+    <div class="stage-buttons">
+      {{range .Stages}}
+      <form method="post" action="/applications/{{$.App.ID}}/stage">
+        <input type="hidden" name="stage" value="{{.Value}}">
+        <button type="submit" class="stage-btn{{if .Current}} on{{end}}">{{if and (eq .Value "interview") .Current}}Next interview round{{else}}{{.Label}}{{end}}</button>
+      </form>
+      {{end}}
+    </div>
+    <p class="help">Any move is allowed, and each one is kept in the history below, so fixing a mistake is just another move.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Details</h2>
+    <form method="post" action="/applications/{{.App.ID}}" class="details">
+      <label for="applied_on">Applied on</label>
+      <input id="applied_on" type="date" name="applied_on" value="{{if .App.AppliedOn}}{{.App.AppliedOn.Format "2006-01-02"}}{{end}}">
+
+      <label for="resume">Resume version</label>
+      <select id="resume" name="resume_version_id">
+        <option value="">None</option>
+        {{range .Resumes}}<option value="{{.ID}}"{{if and $.App.ResumeVersionID (eq .ID (deref $.App.ResumeVersionID))}} selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
+      <input type="text" name="new_resume" placeholder="…or name a new one, e.g. Backend v2 · Nov 2026" aria-label="New resume version">
+
+      <label for="expected_rounds">Expected interview rounds</label>
+      <input id="expected_rounds" type="number" min="1" max="20" name="expected_rounds" value="{{if .App.ExpectedRounds}}{{deref .App.ExpectedRounds}}{{end}}">
+
+      <label for="notes">Notes</label>
+      <textarea id="notes" name="notes" rows="4" placeholder="Which link you used, recruiter name, …">{{.App.Notes}}</textarea>
+
+      <button type="submit">Save details</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>History</h2>
+    <ol class="history">
+      {{range .Events}}<li><span>{{.Label}}</span> <span class="when">{{.At.Local.Format "Jan 2, 3:04 PM"}}</span></li>{{end}}
+    </ol>
+  </section>
+
+  <form method="post" action="/applications/{{.App.ID}}/delete" class="danger">
+    <button class="linkbtn" type="submit">Stop tracking this application</button>
+  </form>
+</main>
+{{template "foot"}}

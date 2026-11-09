@@ -53,7 +53,7 @@ func main() {
 	}
 
 	// COOKIE_SECURE=1 in production (HTTPS); plain http://localhost needs it off.
-	s, err := web.New(st, st, web.Options{SecureCookies: os.Getenv("COOKIE_SECURE") == "1"})
+	s, err := web.New(st, st, st, web.Options{SecureCookies: os.Getenv("COOKIE_SECURE") == "1"})
 	if err != nil {
 		log.Fatal(err)
 	}

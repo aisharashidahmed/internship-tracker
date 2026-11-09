@@ -127,10 +127,15 @@ func newBrowser(t *testing.T, accounts Accounts) *browser {
 
 func newBrowserWithFeed(t *testing.T, f FeedReader, accounts Accounts) *browser {
 	t.Helper()
-	s, err := New(f, accounts, Options{})
+	s, err := New(f, accounts, newFakeTracker(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	return newBrowserFor(t, s)
+}
+
+func newBrowserFor(t *testing.T, s *Server) *browser {
+	t.Helper()
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(srv.Close)
 	jar, _ := cookiejar.New(nil)

@@ -905,3 +905,274 @@ func TestFeed_OnlyNewAndCount(t *testing.T) {
 		t.Errorf("CountFeed(logged out) = %d, want 3", n)
 	}
 }
+
+// --- Slice 9: applications ---
+
+func newUser(t *testing.T, s *Store, email string) int64 {
+	t.Helper()
+	return scalar[int64](t, s, `INSERT INTO users (email, password_hash) VALUES ($1, 'x') RETURNING id`, email)
+}
+
+func aListing(t *testing.T, s *Store) int64 {
+	t.Helper()
+	saveFrom(t, s, "simplify", simplifyFigma)
+	return scalar[int64](t, s, `SELECT id FROM listings ORDER BY id DESC LIMIT 1`)
+}
+
+func TestDB_OneApplicationPerUserAndListing(t *testing.T) {
+	s := newTestStore(t)
+	uid, lid := newUser(t, s, "a@b.co"), aListing(t, s)
+	q := `INSERT INTO applications (user_id, listing_id, stage) VALUES ($1, $2, 'saved')`
+	if err := exec(t, s, q, uid, lid); err != nil {
+		t.Fatal(err)
+	}
+	requireUniqueViolation(t, exec(t, s, q, uid, lid))
+}
+
+func TestDB_ResumeLabelIsUniquePerUserIgnoringCase(t *testing.T) {
+	s := newTestStore(t)
+	uid := newUser(t, s, "a@b.co")
+	q := `INSERT INTO resume_versions (user_id, label) VALUES ($1, $2)`
+	if err := exec(t, s, q, uid, "Backend v2"); err != nil {
+		t.Fatal(err)
+	}
+	requireUniqueViolation(t, exec(t, s, q, uid, "backend V2"))
+	if err := exec(t, s, q, newUser(t, s, "other@b.co"), "Backend v2"); err != nil {
+		t.Errorf("another user can use the same label: %v", err)
+	}
+}
+
+func TestDB_ApplicationRules(t *testing.T) {
+	s := newTestStore(t)
+	uid, lid := newUser(t, s, "a@b.co"), aListing(t, s)
+	other := newUser(t, s, "other@b.co")
+	theirResume := scalar[int64](t, s, `INSERT INTO resume_versions (user_id, label) VALUES ($1, 'theirs') RETURNING id`, other)
+
+	for _, bad := range []struct{ why, sql string }{
+		{"interviewing without a round", `INSERT INTO applications (user_id, listing_id, stage, applied_on) VALUES ($1, $2, 'interview', CURRENT_DATE)`},
+		{"applied without a date", `INSERT INTO applications (user_id, listing_id, stage) VALUES ($1, $2, 'applied')`},
+		{"an unknown stage", `INSERT INTO applications (user_id, listing_id, stage) VALUES ($1, $2, 'ghosted')`},
+	} {
+		if err := exec(t, s, bad.sql, uid, lid); err == nil {
+			t.Errorf("accepted %s", bad.why)
+		}
+	}
+	err := exec(t, s, `INSERT INTO applications (user_id, listing_id, stage, resume_version_id) VALUES ($1, $2, 'saved', $3)`,
+		uid, lid, theirResume)
+	if err == nil {
+		t.Error("accepted another user's resume version")
+	}
+}
+
+func TestApplication_DoubleClickAndHistory(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	uid, lid := newUser(t, s, "a@b.co"), aListing(t, s)
+	today := time.Now()
+
+	id, created, err := s.StartApplication(ctx, uid, lid, StageApplied, today)
+	if err != nil || !created {
+		t.Fatalf("first click: id=%d created=%v err=%v", id, created, err)
+	}
+	again, created, err := s.StartApplication(ctx, uid, lid, StageApplied, today)
+	if err != nil || created || again != id {
+		t.Errorf("second click: id=%d created=%v err=%v; want the same application, not a new one", again, created, err)
+	}
+
+	two := 2
+	s.MoveStage(ctx, uid, id, StageInterview, nil)  // round 1
+	s.MoveStage(ctx, uid, id, StageInterview, nil)  // next round: 2
+	s.MoveStage(ctx, uid, id, StageInterview, &two) // same round again: not a move
+	s.MoveStage(ctx, uid, id, StageRejected, nil)
+
+	app, events, err := s.Application(ctx, uid, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, e := range events {
+		step := string(e.To)
+		if e.InterviewRound != nil {
+			step += fmt.Sprint(*e.InterviewRound)
+		}
+		got = append(got, step)
+	}
+	if strings.Join(got, ",") != "applied,interview1,interview2,rejected" {
+		t.Errorf("history = %v", got)
+	}
+	if app.Stage != StageRejected || app.InterviewRound != nil {
+		t.Errorf("now %s round %v; want rejected with no round", app.Stage, app.InterviewRound)
+	}
+}
+
+func TestApplication_OtherUsersCantTouchIt(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	owner, stranger, lid := newUser(t, s, "a@b.co"), newUser(t, s, "x@b.co"), aListing(t, s)
+	id, _, _ := s.StartApplication(ctx, owner, lid, StageSaved, time.Now())
+
+	if _, _, err := s.Application(ctx, stranger, id); !errors.Is(err, ErrNotFound) {
+		t.Errorf("read: err = %v, want ErrNotFound", err)
+	}
+	if err := s.MoveStage(ctx, stranger, id, StageOffer, nil); !errors.Is(err, ErrNotFound) {
+		t.Errorf("move: err = %v, want ErrNotFound", err)
+	}
+	if err := s.DeleteApplication(ctx, stranger, id); !errors.Is(err, ErrNotFound) {
+		t.Errorf("delete: err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestApplication_SavedThenApplied(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	uid, lid := newUser(t, s, "a@b.co"), aListing(t, s)
+	id, _, _ := s.StartApplication(ctx, uid, lid, StageSaved, time.Now())
+	if err := s.MoveStage(ctx, uid, id, StageApplied, nil); err != nil {
+		t.Fatal(err)
+	}
+	app, _, _ := s.Application(ctx, uid, id)
+	if app.AppliedOn == nil {
+		t.Error("moving past saved should set the applied date (to today)")
+	}
+
+	lastWeek := time.Now().AddDate(0, 0, -7).Truncate(24 * time.Hour)
+	resume, _ := s.AddResumeVersion(ctx, uid, "  Backend   v2 ")
+	sameResume, _ := s.AddResumeVersion(ctx, uid, "backend v2")
+	if resume != sameResume {
+		t.Error("the same label (different case/spacing) made two resume versions")
+	}
+	if err := s.UpdateDetails(ctx, uid, id, Details{AppliedOn: &lastWeek, ResumeVersionID: &resume, Notes: "used the Greenhouse link"}); err != nil {
+		t.Fatal(err)
+	}
+	app, _, _ = s.Application(ctx, uid, id)
+	if app.ResumeLabel != "Backend v2" || app.Notes != "used the Greenhouse link" || app.AppliedOn.Format("2006-01-02") != lastWeek.Format("2006-01-02") {
+		t.Errorf("details = %+v", app)
+	}
+}
+
+// The merge rule promised in slice 8, now that applications exist.
+func TestReattach_SameUserAppliedToBothKeepsThemApart(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	uid := newUser(t, s, "a@b.co")
+
+	// Listing A has posting "r1"; listing B (same job type and season) has "r2".
+	a := listing.Posting{SourceListingID: "r1", Company: "Shield AI", Title: "Engineer 2 New Grad",
+		JobType: listing.NewGrad, Season: "Summer 2027", ApplyURL: "https://x.com/careers", Active: true}
+	b := a
+	b.SourceListingID, b.Title = "r2", "Engineer II - New Grad"
+	saveFrom(t, s, "simplify", a)
+	saveFrom(t, s, "simplify", b)
+	ids := scalar[[]int64](t, s, `SELECT array_agg(id ORDER BY id) FROM listings`)
+	s.StartApplication(ctx, uid, ids[0], StageApplied, time.Now())
+	s.StartApplication(ctx, uid, ids[1], StageApplied, time.Now())
+	previousRun(t, s)
+
+	// A rule change now gives r1 the same key as B: r1 moves, A is emptied.
+	moved := a
+	moved.Title = b.Title
+	saveFrom(t, s, "simplify", moved)
+
+	rep := reattach(t, s, "simplify")
+	if rep.Merged != 0 || rep.KeptApart != 1 {
+		t.Fatalf("report = %+v, want kept apart, not merged", rep)
+	}
+	if n := scalar[int](t, s, `SELECT count(*) FROM applications`); n != 2 {
+		t.Errorf("applications = %d, want both kept", n)
+	}
+	if pairs, _ := s.KeptApartPairs(ctx); len(pairs) != 1 {
+		t.Errorf("possible-duplicates report pairs = %v, want this one", pairs)
+	}
+}
+
+func TestReattach_MergeMovesApplications(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	uid := newUser(t, s, "a@b.co")
+	old := listing.Posting{SourceListingID: "r1", Company: "Shield AI", Title: "Engineer 2 New Grad",
+		JobType: listing.Internship, Season: "Summer 2027", ApplyURL: "https://x.com/careers", Active: true}
+	saveFrom(t, s, "simplify", old)
+	oldID := scalar[int64](t, s, `SELECT id FROM listings`)
+	appID, _, _ := s.StartApplication(ctx, uid, oldID, StageApplied, time.Now())
+	previousRun(t, s)
+
+	now := old
+	now.JobType = listing.NewGrad
+	saveFrom(t, s, "simplify", now)
+	if rep := reattach(t, s, "simplify"); rep.Merged != 1 {
+		t.Fatalf("report = %+v, want merged", rep)
+	}
+	app, _, err := s.Application(ctx, uid, appID)
+	if err != nil || app.ListingID == oldID {
+		t.Errorf("application still points at the deleted listing (%v)", err)
+	}
+}
+
+func TestFeed_HidesWhatYouAppliedTo(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	uid, other := newUser(t, s, "a@b.co"), newUser(t, s, "b@b.co")
+	applied, saved := aListing(t, s), func() int64 {
+		fall := simplifyFigma
+		fall.Season, fall.SourceListingID = "Fall 2027", "s2"
+		saveFrom(t, s, "simplify", fall)
+		return scalar[int64](t, s, `SELECT max(id) FROM listings`)
+	}()
+	s.StartApplication(ctx, uid, applied, StageApplied, time.Now())
+	s.StartApplication(ctx, uid, saved, StageSaved, time.Now())
+
+	count := func(q FeedQuery) int {
+		q.JobType, q.Limit = listing.Internship, 10
+		n, err := s.CountFeed(ctx, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := count(FeedQuery{UserID: uid}); n != 1 {
+		t.Errorf("my feed shows %d, want 1 (applied hidden, saved shown)", n)
+	}
+	if n := count(FeedQuery{UserID: uid, ShowApplied: true}); n != 2 {
+		t.Errorf("with Show applied: %d, want 2", n)
+	}
+	if n := count(FeedQuery{UserID: other}); n != 2 {
+		t.Errorf("someone else's feed shows %d, want 2 (my applications are mine)", n)
+	}
+	if n := count(FeedQuery{}); n != 2 {
+		t.Errorf("logged out: %d, want 2", n)
+	}
+
+	feed, _ := s.Feed(ctx, FeedQuery{JobType: listing.Internship, Limit: 10, UserID: uid, ShowApplied: true})
+	stages := map[string]bool{}
+	for _, l := range feed {
+		if l.Stage != nil {
+			stages[*l.Stage] = true
+		}
+	}
+	if !stages["applied"] || !stages["saved"] {
+		t.Errorf("feed cards should carry my stage, got %v", stages)
+	}
+}
+
+func TestApplication_AppliedOnASavedCard(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	uid, lid := newUser(t, s, "a@b.co"), aListing(t, s)
+	id, _, _ := s.StartApplication(ctx, uid, lid, StageSaved, time.Now())
+
+	again, created, err := s.StartApplication(ctx, uid, lid, StageApplied, time.Now())
+	if err != nil || created || again != id {
+		t.Fatalf("id=%d created=%v err=%v; want the saved one", again, created, err)
+	}
+	app, events, _ := s.Application(ctx, uid, id)
+	if app.Stage != StageApplied || len(events) != 2 {
+		t.Errorf("stage %s with %d events; want applied, saved->applied recorded", app.Stage, len(events))
+	}
+
+	// A late double-click must not move an interview back to applied.
+	s.MoveStage(ctx, uid, id, StageInterview, nil)
+	s.StartApplication(ctx, uid, lid, StageApplied, time.Now())
+	if app, _, _ := s.Application(ctx, uid, id); app.Stage != StageInterview {
+		t.Errorf("stage %s; a repeated click moved it backwards", app.Stage)
+	}
+}

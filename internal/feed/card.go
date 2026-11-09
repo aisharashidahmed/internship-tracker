@@ -30,8 +30,13 @@ type Card struct {
 	AdvancedDegreeOnly bool       `json:"advanced_degree_only"`
 	PostedAt           *time.Time `json:"posted_at,omitempty"`
 	// New: appeared after you last looked. Always false when logged out.
-	New         bool      `json:"new"`
-	FirstSeenAt time.Time `json:"first_seen_at"`
+	New bool `json:"new"`
+	// Your application, if you have one: its id and a label like
+	// "Applied" or "Interview · round 2". Empty when logged out or none.
+	ApplicationID int64     `json:"application_id,omitempty"`
+	Stage         string    `json:"stage,omitempty"`
+	StageLabel    string    `json:"stage_label,omitempty"`
+	FirstSeenAt   time.Time `json:"first_seen_at"`
 }
 
 // Link is one opening: a job link, with every source that lists it.
@@ -89,9 +94,23 @@ func NewCard(l store.FeedListing, newSince *time.Time) Card {
 		}
 	}
 
+	if l.ApplicationID != nil && l.Stage != nil {
+		c.ApplicationID, c.Stage = *l.ApplicationID, *l.Stage
+		c.StageLabel = StageLabel(store.Stage(*l.Stage), l.InterviewRound)
+	}
+
 	c.Openings = len(c.Links)
 	c.Where = where(cities)
 	return c
+}
+
+// StageLabel is how a stage reads on a card: "Interview · round 2".
+func StageLabel(s store.Stage, round *int) string {
+	label := store.StageLabels[s]
+	if s == store.StageInterview && round != nil {
+		label += fmt.Sprintf(" · round %d", *round)
+	}
+	return label
 }
 
 // sortedRoles puts roles in the filter bar's order, so chips line up.

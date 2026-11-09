@@ -77,3 +77,11 @@ func TestNewCard_New(t *testing.T) {
 		t.Error("logged out: nothing is New")
 	}
 }
+
+func TestNewCard_YourApplication(t *testing.T) {
+	id, stage, round := int64(7), "interview", 2
+	c := NewCard(store.FeedListing{ApplicationID: &id, Stage: &stage, InterviewRound: &round}, nil)
+	if c.ApplicationID != 7 || c.StageLabel != "Interview · round 2" {
+		t.Errorf("card = %d %q", c.ApplicationID, c.StageLabel)
+	}
+}

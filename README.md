@@ -106,14 +106,31 @@ looked. That moves forward on its own only when you come back after 30+
 minutes away (refreshing or paging keeps your badges), or when you click
 **Mark all as seen**. On your first visit, the last 24 hours count as new.
 
+## Application tracker
+
+Logged in, each feed card has **Save** and **I applied**. *I applied* opens
+the application, where you pick a resume version (a label like "Backend v2 ·
+Nov 2026"), fix the applied date (defaults to today), set expected interview
+rounds, and keep notes (e.g. which apply link you used).
+
+- Stages: saved, applied, online assessment, interview (numbered rounds),
+  offer, rejected, withdrawn. Any move is allowed and every move is kept in
+  the history, so fixing a mistake is just another move.
+- **My applications** lists everything by stage, furthest along first.
+- The feed hides listings you've applied to (it's for "what next?");
+  **Show applied** brings them back with your stage on the card.
+- The database enforces one application per user and listing (a
+  double-click can't make two), resume labels unique per user, and that an
+  application's resume belongs to the same user.
+
 ## When the matching rules change
 
 The rules live in `internal/listing`, and the app fingerprints that code.
 When it changes, the next ingest re-saves every source once (even if GitHub
 says the file is unchanged). A posting that now matches a different listing
 leaves its old one; an old listing left with no postings is merged into the
-new one, unless a person applied to both, in which case both are kept and
-listed as possible duplicates.
+new one, unless the same person applied to both, in which case both are kept and
+listed as possible duplicates. A merge moves applications to the remaining listing.
 
 ## Accounts
 

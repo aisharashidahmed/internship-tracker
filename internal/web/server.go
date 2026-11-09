@@ -43,6 +43,7 @@ type FeedReader interface {
 type Server struct {
 	feed          FeedReader
 	accounts      Accounts
+	tracker       Tracker
 	tmpl          *template.Template
 	secureCookies bool // set when served over HTTPS behind a proxy
 	emailLimiter  *auth.Limiter
@@ -58,10 +59,11 @@ type Options struct {
 
 // New parses the templates once, at startup, so a broken template fails
 // immediately instead of on the first request.
-func New(f FeedReader, accounts Accounts, opts Options) (*Server, error) {
+func New(f FeedReader, accounts Accounts, tracker Tracker, opts Options) (*Server, error) {
 	tmpl, err := template.New("").Funcs(template.FuncMap{
 		"ago":           func(t time.Time) string { return ago(t, time.Now()) },
 		"since":         func(t time.Time) string { return t.Local().Format("Mon 3:04 PM") },
+		"deref":         func(p any) any { return derefValue(p) },
 		"roleLabel":     listing.RoleLabel,
 		"industryLabel": func(s string) string { return listing.IndustryLabels[listing.Industry(s)] },
 	}).ParseFS(templates, "templates/*.html")
@@ -69,7 +71,7 @@ func New(f FeedReader, accounts Accounts, opts Options) (*Server, error) {
 		return nil, fmt.Errorf("parse templates: %w", err)
 	}
 	return &Server{
-		feed: f, accounts: accounts, tmpl: tmpl, secureCookies: opts.SecureCookies,
+		feed: f, accounts: accounts, tracker: tracker, tmpl: tmpl, secureCookies: opts.SecureCookies,
 		emailLimiter: auth.NewLimiter(5, loginWindow),
 		ipLimiter:    auth.NewLimiter(20, loginWindow),
 	}, nil
@@ -90,16 +92,23 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /login", s.login)
 	mux.HandleFunc("POST /logout", s.logout)
 	mux.HandleFunc("POST /seen", s.markAllSeen)
+	mux.HandleFunc("POST /applications", s.startApplication)
+	mux.HandleFunc("GET /applications", s.applicationsPage)
+	mux.HandleFunc("GET /applications/{id}", s.applicationPage)
+	mux.HandleFunc("POST /applications/{id}", s.updateApplication)
+	mux.HandleFunc("POST /applications/{id}/stage", s.moveStage)
+	mux.HandleFunc("POST /applications/{id}/delete", s.deleteApplication)
 	return http.NewCrossOriginProtection().Handler(s.withUser(mux))
 }
 
 // Filters is what the visitor chose in the filter bar.
 type Filters struct {
-	JobType    listing.JobType    `json:"job_type"`
-	Roles      []listing.Role     `json:"roles"`
-	MatchAll   bool               `json:"match_all_roles"`
-	Industries []listing.Industry `json:"industries"`
-	OnlyNew    bool               `json:"only_new"` // only listings new since you last looked (logged in)
+	JobType     listing.JobType    `json:"job_type"`
+	Roles       []listing.Role     `json:"roles"`
+	MatchAll    bool               `json:"match_all_roles"`
+	Industries  []listing.Industry `json:"industries"`
+	OnlyNew     bool               `json:"only_new"`     // only listings new since you last looked (logged in)
+	ShowApplied bool               `json:"show_applied"` // include listings you've applied to (logged in)
 }
 
 // jobTypes are the two tabs; the first is the default.
@@ -110,7 +119,8 @@ var jobTypeLabels = map[listing.JobType]string{listing.Internship: "Internships"
 // parseFilters reads the URL. Unknown values are ignored rather than
 // rejected: an old bookmark should still show something sensible.
 func parseFilters(q url.Values) Filters {
-	f := Filters{JobType: jobTypes[0], MatchAll: q.Get("match") == "all", OnlyNew: q.Get("new") == "1"}
+	f := Filters{JobType: jobTypes[0], MatchAll: q.Get("match") == "all", OnlyNew: q.Get("new") == "1",
+		ShowApplied: q.Get("applied") == "1"}
 	if t := listing.JobType(q.Get("type")); slices.Contains(jobTypes, t) {
 		f.JobType = t
 	}
@@ -141,6 +151,9 @@ func (f Filters) query(page int) string {
 	}
 	if f.OnlyNew {
 		v.Set("new", "1")
+	}
+	if f.ShowApplied {
+		v.Set("applied", "1")
 	}
 	if page > 1 {
 		v.Set("page", strconv.Itoa(page))
@@ -194,7 +207,7 @@ func (p Page) IndustryOptions() []Option {
 
 // Filtered reports whether any filter beyond the tab is on.
 func (p Page) Filtered() bool {
-	return len(p.Filters.Roles) > 0 || len(p.Filters.Industries) > 0 || p.Filters.OnlyNew
+	return len(p.Filters.Roles) > 0 || len(p.Filters.Industries) > 0 || p.Filters.OnlyNew || p.Filters.ShowApplied
 }
 
 // HereURL is this page's own address, so "Mark all as seen" can come back.
@@ -234,11 +247,17 @@ func (s *Server) loadPage(r *http.Request, countsAsVisit bool) (Page, error) {
 	if p.NewSince == nil {
 		p.Filters.OnlyNew = false // nothing is "new" without a boundary
 	}
+	var userID int64
+	if p.User != nil {
+		userID = p.User.ID
+	} else {
+		p.Filters.ShowApplied = false // nothing is "applied" when logged out
+	}
 
 	f := p.Filters
 	q := store.FeedQuery{
 		JobType: f.JobType, Roles: f.Roles, MatchAllRoles: f.MatchAll, Industries: f.Industries,
-		OnlyNew: f.OnlyNew, NewSince: p.NewSince,
+		OnlyNew: f.OnlyNew, NewSince: p.NewSince, UserID: userID, ShowApplied: f.ShowApplied,
 		Limit: PageSize + 1, Offset: (n - 1) * PageSize, // one extra row: if it comes back, there's a next page
 	}
 	listings, err := s.feed.Feed(ctx, q)
@@ -321,4 +340,19 @@ func ago(t, now time.Time) string {
 	default:
 		return fmt.Sprintf("%d days ago", days)
 	}
+}
+
+// derefValue lets templates show *int and *int64 fields.
+func derefValue(p any) any {
+	switch v := p.(type) {
+	case *int:
+		if v != nil {
+			return *v
+		}
+	case *int64:
+		if v != nil {
+			return *v
+		}
+	}
+	return nil
 }

@@ -96,20 +96,31 @@ func (s *Store) ReattachMovedPostings(ctx context.Context, sourceID int64) (Merg
 }
 
 // mergeBlocked says whether merging listing from into to would lose
-// something a person did. Decided rule: if the same user applied to both
-// listings separately, they are not merged (applications are stronger
-// evidence than the matching rules).
-//
-// There are no applications yet. The application-tracker slice MUST add
-// that check here, with a test.
+// something a person did. Decided rule: if the same user has an
+// application on each listing, they are not merged. Two separate
+// applications are stronger evidence than the matching rules that these
+// are different jobs (and merging would break "one application per job").
 func (s *Store) mergeBlocked(ctx context.Context, from, to int64) (blocked bool, reason string, err error) {
+	var users int
+	err = s.db.QueryRow(ctx, `
+		SELECT count(*) FROM applications a JOIN applications b ON b.user_id = a.user_id
+		WHERE a.listing_id = $1 AND b.listing_id = $2`, from, to).Scan(&users)
+	if err != nil {
+		return false, "", fmt.Errorf("check merge of %d into %d: %w", from, to, err)
+	}
+	if users > 0 {
+		return true, fmt.Sprintf("%d user(s) applied to each separately", users), nil
+	}
 	return false, "", nil
 }
 
 // mergeInto moves everything that points at listing from over to listing
-// to, then deletes from. Its postings have already moved; per-user data
-// (applications, later) must be moved here too.
+// to, then deletes from. Its postings have already moved. Applications
+// move too; mergeBlocked has already made sure no user has one on both.
 func (s *Store) mergeInto(ctx context.Context, from, to int64) error {
+	if _, err := s.db.Exec(ctx, `UPDATE applications SET listing_id = $2 WHERE listing_id = $1`, from, to); err != nil {
+		return fmt.Errorf("merge listing %d into %d: move applications: %w", from, to, err)
+	}
 	// Keep the earlier first-seen time and posted date: the job was known then.
 	_, err := s.db.Exec(ctx, `
 		UPDATE listings t SET

@@ -20,6 +20,7 @@
         {{range .JobTypeOptions}}<label><input class="sr" type="radio" name="type" value="{{.Value}}"{{if .On}} checked{{end}}><span>{{.Label}}</span></label>{{end}}
       </div>
       {{if .NewSince}}<label class="pick"><input class="sr" type="checkbox" name="new" value="1"{{if .Filters.OnlyNew}} checked{{end}}><span>Only new</span></label>{{end}}
+      {{if .User}}<label class="pick"><input class="sr" type="checkbox" name="applied" value="1"{{if .Filters.ShowApplied}} checked{{end}}><span>Show applied</span></label>{{end}}
       {{if .Filtered}}<a class="clear" href="{{.ClearURL}}">Clear filters</a>{{end}}
     </div>
 
@@ -54,6 +55,7 @@
     </div>
     <div class="chips">
       {{if .New}}<span class="chip new">New</span>{{end}}
+      {{if .StageLabel}}<a class="chip stage" href="/applications/{{.ApplicationID}}">{{.StageLabel}}</a>{{end}}
       {{if .Stale}}<span class="chip warn">May be closed</span>{{end}}
       {{range .Roles}}<span class="chip role">{{roleLabel .}}</span>{{end}}
       {{range .Industries}}<span class="chip industry">{{industryLabel .}}</span>{{end}}
@@ -78,6 +80,16 @@
         {{end}}
       </ul>
     </details>
+    {{end}}
+    {{if $.User}}
+    <div class="card-actions" style="grid-column: 1 / -1">
+      {{if not .ApplicationID}}
+      <form method="post" action="/applications"><input type="hidden" name="listing_id" value="{{.ID}}"><input type="hidden" name="stage" value="saved"><input type="hidden" name="back" value="{{$.HereURL}}"><button class="btn-quiet" type="submit">Save</button></form>
+      {{end}}
+      {{if or (not .ApplicationID) (eq .Stage "saved")}}
+      <form method="post" action="/applications"><input type="hidden" name="listing_id" value="{{.ID}}"><input type="hidden" name="stage" value="applied"><button class="btn-quiet" type="submit">I applied</button></form>
+      {{end}}
+    </div>
     {{end}}
   </article>
   {{else}}
