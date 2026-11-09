@@ -57,25 +57,32 @@ func (s *Store) InviteUsable(ctx context.Context, token string) (bool, error) {
 
 // SignUp creates an account using an invite, all in one transaction: if
 // the email is taken, the invite isn't used up.
+// SignUp creates an account. Sign-up is open (decided 2026-11-08); an
+// invite token is optional. If one is given it must be valid, and it is
+// used up: invite links still work for sharing with a group.
 func (s *Store) SignUp(ctx context.Context, inviteToken, email, passwordHash, timezone string) (User, error) {
 	var u User
 	err := s.InTx(ctx, func(tx *Store) error {
-		// FOR UPDATE locks the invite row, so two people using the last
-		// seat of a group link at the same moment can't both get in.
-		var inviteID int64
-		err := tx.db.QueryRow(ctx, `
-			SELECT id FROM invites
-			WHERE token_hash = $1 AND expires_at > now() AND uses < max_uses
-			FOR UPDATE`,
-			auth.HashToken(inviteToken)).Scan(&inviteID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrInviteInvalid
-		}
-		if err != nil {
-			return fmt.Errorf("sign up: %w", err)
+		var inviteID *int64
+		if inviteToken != "" {
+			// FOR UPDATE locks the invite row, so two people using the last
+			// seat of a group link at the same moment can't both get in.
+			var id int64
+			err := tx.db.QueryRow(ctx, `
+				SELECT id FROM invites
+				WHERE token_hash = $1 AND expires_at > now() AND uses < max_uses
+				FOR UPDATE`,
+				auth.HashToken(inviteToken)).Scan(&id)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrInviteInvalid
+			}
+			if err != nil {
+				return fmt.Errorf("sign up: %w", err)
+			}
+			inviteID = &id
 		}
 
-		err = tx.db.QueryRow(ctx,
+		err := tx.db.QueryRow(ctx,
 			`INSERT INTO users (email, password_hash, invite_id, timezone) VALUES ($1, $2, $3, $4) RETURNING id, email, timezone`,
 			email, passwordHash, inviteID, timezone).Scan(&u.ID, &u.Email, &u.Timezone)
 		var pgErr *pgconn.PgError
@@ -86,7 +93,10 @@ func (s *Store) SignUp(ctx context.Context, inviteToken, email, passwordHash, ti
 			return fmt.Errorf("sign up: %w", err)
 		}
 
-		_, err = tx.db.Exec(ctx, `UPDATE invites SET uses = uses + 1 WHERE id = $1`, inviteID)
+		if inviteID == nil {
+			return nil
+		}
+		_, err = tx.db.Exec(ctx, `UPDATE invites SET uses = uses + 1 WHERE id = $1`, *inviteID)
 		return err
 	})
 	return u, err

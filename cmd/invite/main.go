@@ -1,4 +1,5 @@
-// Command invite creates a sign-up link. Sign-up is invite-only.
+// Command invite creates a sign-up link. Sign-up is open to anyone; an
+// invite is a convenience for sharing with a group (and can limit seats).
 //
 //	go run ./cmd/invite -note "Jordan"                       # one person, valid 14 days
 //	go run ./cmd/invite -note "ColorStack" -uses 50 -days 7  # a group link

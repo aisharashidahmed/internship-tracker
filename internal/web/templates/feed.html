@@ -118,7 +118,7 @@
       {{if .NewCount}}<form method="post" action="/seen"><input type="hidden" name="back" value="{{.HereURL}}"><button class="linkbtn" type="submit">Mark all as seen</button></form>{{end}}
     </div>
     {{else if not .User}}
-    <p class="sub" style="margin:0"><a href="/login">Log in</a> to track applications and see what's new for you.</p>
+    <p class="sub" style="margin:0"><a href="/signup">Sign up</a> or <a href="/login">log in</a> to track applications and see what's new for you.</p>
     {{end}}
   </div>
 

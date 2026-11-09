@@ -15,7 +15,7 @@ go run ./cmd/ingest                  # fetch every source and save listings
 go run ./cmd/ingest -force           # ignore saved ETags and re-save everything
 go run ./cmd/server                  # feed at http://localhost:8080 + ingest now, then hourly
 go run ./cmd/server -ingest-every=0  # feed only (no ingestion)
-go run ./cmd/invite -note "Jordan"   # print a one-time sign-up link (-uses 50 for a group link)
+go run ./cmd/invite -note "Jordan"   # optional: a sign-up link for a person or group (-uses 50)
 go test ./...                        # all tests (store tests use the _test DB)
 ```
 
@@ -183,10 +183,11 @@ visitors get `APP_TIMEZONE` (default `America/New_York`).
 
 ## Accounts
 
-The feed is public; an account adds personal features. Sign-up is
-**invite-only**: `go run ./cmd/invite` prints a link (single-use by default,
-`-uses N` for a group, `-days N` to expire). Logins last 30 days and renew
-while you use the site.
+The feed is public; an account adds personal features. Anyone can **sign up**
+at `/signup` (at most 5 new accounts per network per hour). Invite links still
+work for sharing with a group: `go run ./cmd/invite` prints one (single-use by
+default, `-uses N` for a group, `-days N` to expire). Logins last 30 days and
+renew while you use the site.
 
 - Passwords: at least 10 characters (no symbol rules), stored as bcrypt hashes.
 - Sessions: a random token in an `HttpOnly`, `SameSite=Lax` cookie (`Secure`

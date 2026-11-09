@@ -49,6 +49,7 @@ type Server struct {
 	defaultLoc    *time.Location // for logged-out visitors, and users with no timezone
 	emailLimiter  *auth.Limiter
 	ipLimiter     *auth.Limiter
+	signupLimiter *auth.Limiter // new accounts per IP address per hour
 }
 
 // Options configure a Server.
@@ -87,8 +88,9 @@ func New(f FeedReader, accounts Accounts, tracker Tracker, opts Options) (*Serve
 	return &Server{
 		defaultLoc: defaultLoc,
 		feed:       f, accounts: accounts, tracker: tracker, tmpl: tmpl, secureCookies: opts.SecureCookies,
-		emailLimiter: auth.NewLimiter(5, loginWindow),
-		ipLimiter:    auth.NewLimiter(20, loginWindow),
+		emailLimiter:  auth.NewLimiter(5, loginWindow),
+		ipLimiter:     auth.NewLimiter(20, loginWindow),
+		signupLimiter: auth.NewLimiter(5, time.Hour),
 	}, nil
 }
 

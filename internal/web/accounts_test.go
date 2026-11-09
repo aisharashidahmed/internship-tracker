@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -40,13 +41,15 @@ func (f *fakeAccounts) InviteUsable(_ context.Context, t string) (bool, error) {
 func (f *fakeAccounts) SignUp(_ context.Context, invite, email, hash, tz string) (store.User, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.invites[invite] <= 0 {
+	if invite != "" && f.invites[invite] <= 0 { // open sign-up: an invite is optional
 		return store.User{}, store.ErrInviteInvalid
 	}
 	if _, taken := f.users[strings.ToLower(email)]; taken {
 		return store.User{}, store.ErrEmailTaken
 	}
-	f.invites[invite]--
+	if invite != "" {
+		f.invites[invite]--
+	}
 	f.nextID++
 	u := store.User{ID: f.nextID, Email: email, PasswordHash: hash, Timezone: tz}
 	f.users[strings.ToLower(email)] = u
@@ -229,7 +232,7 @@ func TestSignup_RefusesBadInput(t *testing.T) {
 	if page := signup("good-invite", "a@college.edu", "short"); !strings.Contains(page, "at least 10") {
 		t.Error("short password not refused")
 	}
-	if page := signup("made-up", "a@college.edu", "correct horse battery"); !strings.Contains(page, "invite-only") {
+	if page := signup("made-up", "a@college.edu", "correct horse battery"); !strings.Contains(page, "invalid, expired, or already used") {
 		t.Error("bad invite not refused")
 	}
 	signup("good-invite", "a@college.edu", "correct horse battery")
@@ -276,7 +279,7 @@ func TestNewSinceYouLastLooked(t *testing.T) {
 
 	// Logged out: no New badges, no count.
 	logged := newBrowserWithFeed(t, f, newFakeAccounts())
-	if _, page := logged.get("/"); strings.Contains(page, `chip new`) || !strings.Contains(page, "Log in</a> to track applications") {
+	if _, page := logged.get("/"); strings.Contains(page, `chip new`) || !strings.Contains(page, "log in</a> to track applications") {
 		t.Error("logged out: should show no New badges and a log-in hint")
 	}
 
@@ -318,5 +321,30 @@ func TestMarkAllSeen_StaysOnSite(t *testing.T) {
 		if loc := res.Header.Get("Location"); loc != "/" {
 			t.Errorf("back=%q redirected to %q, want /", back, loc)
 		}
+	}
+}
+
+func TestOpenSignup(t *testing.T) {
+	b := newBrowser(t, newFakeAccounts())
+	if _, page := b.get("/signup"); !strings.Contains(page, "Create account") {
+		t.Fatal("anyone should get the sign-up form, no invite needed")
+	}
+	if status, _ := b.post("/signup", url.Values{"email": {"open@college.edu"}, "password": {"correct horse battery"}}); status != http.StatusSeeOther {
+		t.Fatalf("open sign-up: status %d, want a redirect home", status)
+	}
+}
+
+func TestSignup_LimitedPerNetwork(t *testing.T) {
+	b := newBrowser(t, newFakeAccounts())
+	for i := range 5 {
+		b.post("/logout", nil)
+		if status, _ := b.post("/signup", url.Values{"email": {fmt.Sprintf("u%d@college.edu", i)}, "password": {"correct horse battery"}}); status != http.StatusSeeOther {
+			t.Fatalf("sign-up %d: status %d", i+1, status)
+		}
+	}
+	b.post("/logout", nil)
+	status, page := b.post("/signup", url.Values{"email": {"u6@college.edu"}, "password": {"correct horse battery"}})
+	if status != http.StatusTooManyRequests || !strings.Contains(page, "Too many new accounts") {
+		t.Errorf("6th sign-up in an hour: status %d, want 429", status)
 	}
 }

@@ -1405,3 +1405,14 @@ func TestFeed_Search(t *testing.T) {
 		}
 	}
 }
+
+func TestSignUp_WithoutInvite(t *testing.T) {
+	s := newTestStore(t)
+	u, err := s.SignUp(context.Background(), "", "open@b.co", "h", "America/New_York")
+	if err != nil || u.ID == 0 {
+		t.Fatalf("open sign-up: %+v %v", u, err)
+	}
+	if n := scalar[int](t, s, `SELECT count(*) FROM users WHERE invite_id IS NULL`); n != 1 {
+		t.Errorf("users without an invite = %d, want 1", n)
+	}
+}

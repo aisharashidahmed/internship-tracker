@@ -105,11 +105,20 @@ func (s *Server) render(w http.ResponseWriter, status int, name string, data any
 // --- Sign-up ---
 
 func (s *Server) signupPage(w http.ResponseWriter, r *http.Request) {
-	invite := r.URL.Query().Get("invite")
-	ok, err := s.accounts.InviteUsable(r.Context(), invite)
-	if err != nil {
-		serverError(w, err)
+	if currentUser(r) != nil {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
+	}
+	// Anyone can sign up. An invite link is optional, but if one is used
+	// and it's no good, say so before asking for a password.
+	invite := r.URL.Query().Get("invite")
+	ok := true
+	if invite != "" {
+		var err error
+		if ok, err = s.accounts.InviteUsable(r.Context(), invite); err != nil {
+			serverError(w, err)
+			return
+		}
 	}
 	s.render(w, http.StatusOK, "auth.html", AuthPage{
 		User: currentUser(r), Title: "Create your account", Mode: "signup", Invite: invite, InviteOK: ok,
@@ -122,6 +131,15 @@ func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 	fail := func(msg string) {
 		page.Error = msg
 		s.render(w, http.StatusUnprocessableEntity, "auth.html", page)
+	}
+
+	// New accounts per IP address are limited, so a script can't create
+	// thousands. (Email verification will come with an email service.)
+	ipKey := "signup:" + clientIP(r)
+	if s.signupLimiter.Blocked(ipKey) {
+		page.Error = "Too many new accounts from this network. Please try again in an hour."
+		s.render(w, http.StatusTooManyRequests, "auth.html", page)
+		return
 	}
 
 	email, err := auth.NormalizeEmail(page.Email)
@@ -159,6 +177,7 @@ func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	s.signupLimiter.Fail(ipKey) // counts this account against the hourly limit
 	s.startSession(w, r, u.ID)
 }
 
