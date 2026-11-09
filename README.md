@@ -196,6 +196,22 @@ renew while you use the site.
 - Form posts from other websites are rejected (Go's `CrossOriginProtection`).
 - Messages never reveal whether an email has an account.
 
+## Deploying (use it from any device)
+
+The repo includes a `Dockerfile` and a Render Blueprint (`render.yaml`) that
+creates the web service and a Postgres database together:
+
+1. Sign in at render.com (with GitHub is easiest) and give it access to this repo.
+2. **New → Blueprint**, pick this repo, review the plans and prices, and confirm.
+3. Wait for the first deploy. On startup the server migrates the database,
+   ingests both sources, and starts the hourly jobs. Open the
+   `https://….onrender.com` address on any device and sign up.
+
+Every push to `main` deploys again. The same image runs on any Docker host:
+set `DATABASE_URL` and `PORT`, plus `COOKIE_SECURE=1` (HTTPS) and
+`TRUST_PROXY=1` (behind the host's proxy). Run exactly one instance: the
+hourly jobs and the login rate limits live inside it.
+
 ## How the code is laid out
 
 Data flows one way: **source file → postings → listings → database**.

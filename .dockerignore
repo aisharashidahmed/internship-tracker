@@ -1,0 +1,5 @@
+.git
+CLAUDE.md
+*.test
+*.out
+.env

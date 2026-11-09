@@ -348,3 +348,18 @@ func TestSignup_LimitedPerNetwork(t *testing.T) {
 		t.Errorf("6th sign-up in an hour: status %d, want 429", status)
 	}
 }
+
+func TestClientIP_BehindProxy(t *testing.T) {
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "10.0.0.5:1234"                          // the host's proxy
+	r.Header.Set("X-Forwarded-For", "6.6.6.6, 203.0.113.9") // visitor-sent fake, then the proxy's real entry
+
+	direct := &Server{}
+	if got := direct.clientIP(r); got != "10.0.0.5" {
+		t.Errorf("without TrustProxy: %s, want the connection address", got)
+	}
+	proxied := &Server{trustProxy: true}
+	if got := proxied.clientIP(r); got != "203.0.113.9" {
+		t.Errorf("with TrustProxy: %s, want the address the proxy added (not the faked one)", got)
+	}
+}

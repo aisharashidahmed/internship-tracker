@@ -1,0 +1,29 @@
+# Render Blueprint: one web service and one Postgres database.
+# In the Render dashboard: New > Blueprint > pick this GitHub repo.
+#
+# Plans: a free web service sleeps when idle, which would stop the hourly
+# ingestion and link checks, so the web service uses a small paid plan.
+# Plan names and prices change; check them on Render before you confirm.
+services:
+  - type: web
+    name: internship-tracker
+    runtime: docker
+    plan: starter
+    numInstances: 1          # one copy: the hourly jobs and rate limits live in it
+    healthCheckPath: /healthz
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: internship-tracker-db
+          property: connectionString
+      - key: COOKIE_SECURE   # the site is HTTPS-only on Render
+        value: "1"
+      - key: TRUST_PROXY     # Render's proxy adds the visitor's IP to X-Forwarded-For
+        value: "1"
+      - key: APP_TIMEZONE    # for logged-out visitors; users get their own
+        value: America/New_York
+
+databases:
+  - name: internship-tracker-db
+    databaseName: internship_tracker
+    plan: basic-256mb

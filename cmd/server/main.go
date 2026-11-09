@@ -1,5 +1,14 @@
-// Command server serves the feed at http://localhost:8080 (or $PORT) and
-// ingests every source right away, then every hour.
+// Command server serves the feed and ingests every source right away, then
+// every hour. Locally it listens on localhost:8080. On a host (Render, Fly,
+// ...) set PORT and it listens on all interfaces, as the host expects.
+//
+// Settings come from the environment, so the same binary runs anywhere:
+//
+//	DATABASE_URL   Postgres connection string
+//	PORT           set by the host; listen on :PORT
+//	COOKIE_SECURE  1 when served over HTTPS (always, on a host)
+//	TRUST_PROXY    1 when behind the host's proxy, to see real visitor IPs
+//	APP_TIMEZONE   timezone for logged-out visitors (default America/New_York)
 //
 //	go run ./cmd/server                    # feed + hourly ingestion
 //	go run ./cmd/server -ingest-every=0    # feed only
@@ -15,6 +24,9 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	// The timezone database, built into the binary, so every user's
+	// timezone works even on a host whose image has no zoneinfo files.
+	_ "time/tzdata"
 
 	"internship-tracker/internal/db"
 	"internship-tracker/internal/ingest"
@@ -39,6 +51,11 @@ func main() {
 		log.Fatal(err)
 	}
 	defer pool.Close()
+	// Bring the schema up to date before serving, so a deploy is just
+	// "start the new version". Already-applied migrations are skipped.
+	if err := db.Migrate(ctx, pool); err != nil {
+		log.Fatal(err)
+	}
 	st := store.New(pool)
 
 	if *every > 0 {
@@ -78,12 +95,18 @@ func main() {
 	// APP_TIMEZONE: the zone for logged-out visitors (users get their own).
 	s, err := web.New(st, st, st, web.Options{
 		SecureCookies:   os.Getenv("COOKIE_SECURE") == "1",
+		TrustProxy:      os.Getenv("TRUST_PROXY") == "1",
 		DefaultTimezone: os.Getenv("APP_TIMEZONE"),
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
-	addr := "localhost:" + envOr("PORT", "8080")
+	// Locally: only this computer can connect. On a host: PORT is set and
+	// we must accept connections from the host's proxy, so listen on all.
+	addr := "localhost:8080"
+	if port := os.Getenv("PORT"); port != "" {
+		addr = ":" + port
+	}
 	srv := &http.Server{
 		Addr:    addr,
 		Handler: s.Handler(),
@@ -100,16 +123,9 @@ func main() {
 		srv.Shutdown(shutdownCtx)
 	}()
 
-	log.Printf("feed at http://%s", addr)
+	log.Printf("listening on %s", addr)
 	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
 	log.Print("stopped")
-}
-
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
 }

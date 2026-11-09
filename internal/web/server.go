@@ -46,6 +46,7 @@ type Server struct {
 	tracker       Tracker
 	tmpl          *template.Template
 	secureCookies bool           // set when served over HTTPS behind a proxy
+	trustProxy    bool           // read the visitor's IP from X-Forwarded-For
 	defaultLoc    *time.Location // for logged-out visitors, and users with no timezone
 	emailLimiter  *auth.Limiter
 	ipLimiter     *auth.Limiter
@@ -57,6 +58,10 @@ type Options struct {
 	// SecureCookies marks the session cookie HTTPS-only. Turn it on in
 	// production; plain http://localhost needs it off.
 	SecureCookies bool
+	// TrustProxy: the server runs behind a host's proxy (Render, Fly, ...),
+	// so the visitor's address is the last entry the proxy added to
+	// X-Forwarded-For, not the connection's address (which is the proxy).
+	TrustProxy bool
 	// DefaultTimezone is an IANA name, e.g. "America/New_York": used for
 	// logged-out visitors. Empty means America/New_York.
 	DefaultTimezone string
@@ -88,6 +93,7 @@ func New(f FeedReader, accounts Accounts, tracker Tracker, opts Options) (*Serve
 	return &Server{
 		defaultLoc: defaultLoc,
 		feed:       f, accounts: accounts, tracker: tracker, tmpl: tmpl, secureCookies: opts.SecureCookies,
+		trustProxy:    opts.TrustProxy,
 		emailLimiter:  auth.NewLimiter(5, loginWindow),
 		ipLimiter:     auth.NewLimiter(20, loginWindow),
 		signupLimiter: auth.NewLimiter(5, time.Hour),
@@ -104,6 +110,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /{$}", s.feedPage)
 	mux.HandleFunc("GET /api/listings", s.feedJSON)
 	mux.HandleFunc("GET /api/count", s.countJSON)
+	// The host checks this to know the app is up.
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
 	mux.HandleFunc("GET /signup", s.signupPage)
 	mux.HandleFunc("POST /signup", s.signup)
 	mux.HandleFunc("GET /login", s.loginPage)

@@ -135,7 +135,7 @@ func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 
 	// New accounts per IP address are limited, so a script can't create
 	// thousands. (Email verification will come with an email service.)
-	ipKey := "signup:" + clientIP(r)
+	ipKey := "signup:" + s.clientIP(r)
 	if s.signupLimiter.Blocked(ipKey) {
 		page.Error = "Too many new accounts from this network. Please try again in an hour."
 		s.render(w, http.StatusTooManyRequests, "auth.html", page)
@@ -193,7 +193,7 @@ func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	page := AuthPage{Title: "Log in", Mode: "login", Email: strings.TrimSpace(r.PostFormValue("email"))}
-	emailKey, ipKey := "email:"+strings.ToLower(page.Email), "ip:"+clientIP(r)
+	emailKey, ipKey := "email:"+strings.ToLower(page.Email), "ip:"+s.clientIP(r)
 
 	if s.emailLimiter.Blocked(emailKey) || s.ipLimiter.Blocked(ipKey) {
 		page.Error = "Too many attempts. Please wait 15 minutes and try again."
@@ -247,9 +247,19 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-// clientIP is the address the request came from. Behind a proxy this would
-// be the proxy; we'll read its forwarding header once we deploy behind one.
-func clientIP(r *http.Request) string {
+// clientIP is the visitor's address, for the rate limits. Behind a host's
+// proxy (TrustProxy), it's the last address in X-Forwarded-For: the one the
+// proxy itself added. Earlier entries are whatever the visitor sent, so a
+// script could fake them to dodge the limits; the last one it can't.
+func (s *Server) clientIP(r *http.Request) string {
+	if s.trustProxy {
+		if fwd := r.Header.Values("X-Forwarded-For"); len(fwd) > 0 {
+			parts := strings.Split(fwd[len(fwd)-1], ",")
+			if ip := strings.TrimSpace(parts[len(parts)-1]); ip != "" {
+				return ip
+			}
+		}
+	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
