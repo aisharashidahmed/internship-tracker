@@ -48,6 +48,15 @@
      3 on a big monitor (the page grows to 1680px there, see layout.html). */
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(380px, 100%), 1fr)); gap: 18px; }
   .role { padding: 18px 18px 16px; display: flex; flex-direction: column; gap: 10px; }
+  .role.k-general_swe { background: var(--k-general_swe); border-left: var(--edge-w) solid var(--e-general_swe); }
+  .role.k-backend { background: var(--k-backend); border-left: var(--edge-w) solid var(--e-backend); }
+  .role.k-frontend { background: var(--k-frontend); border-left: var(--edge-w) solid var(--e-frontend); }
+  .role.k-ml { background: var(--k-ml); border-left: var(--edge-w) solid var(--e-ml); }
+  .role.k-ai { background: var(--k-ai); border-left: var(--edge-w) solid var(--e-ai); }
+  .role.k-data { background: var(--k-data); border-left: var(--edge-w) solid var(--e-data); }
+  .role.k-pm { background: var(--k-pm); border-left: var(--edge-w) solid var(--e-pm); }
+  .role.k-quant { background: var(--k-quant); border-left: var(--edge-w) solid var(--e-quant); }
+  .role.k-hardware { background: var(--k-hardware); border-left: var(--edge-w) solid var(--e-hardware); }
   .role.stale { opacity: .8; }
   .role-top { display: flex; gap: 12px; align-items: flex-start; }
   .avatar { flex: none; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
@@ -177,7 +186,7 @@
 
       <div class="grid">
       {{range $ci, $c := .Cards}}
-        <article class="card role{{if eq (len $c.Seasons) 1}} single{{end}}{{if (index $c.Seasons 0).Stale}} stale{{end}}">
+        <article class="card role{{with $c.Roles}} k-{{index . 0}}{{end}}{{if eq (len $c.Seasons) 1}} single{{end}}{{if (index $c.Seasons 0).Stale}} stale{{end}}">
           <div class="role-top">
             <div class="avatar c{{$c.Color}}" aria-hidden="true">{{$c.Initial}}</div>
             <div>

@@ -23,11 +23,22 @@
     --shadow: 0 1px 2px rgba(98, 30, 62, .06), 0 6px 18px rgba(98, 30, 62, .07);
     --brand: linear-gradient(135deg, #FFEC8E, #D9828D 50%, #621E3E);
 
-    --c-general_swe: #F0E4E8; --t-general_swe: #5A2A3E;  --c-backend: #E6EBD6;  --t-backend: #4A5527;
-    --c-frontend: #F8DFE2;    --t-frontend: #8A3446;     --c-ml: #EBDDF0;       --t-ml: #5C2D6E;
-    --c-ai: #F6D9E6;          --t-ai: #7A2350;           --c-data: #F3F2CC;     --t-data: #4F5214;
-    --c-pm: #FFF1BD;          --t-pm: #6B4E00;           --c-quant: #E2E6EF;    --t-quant: #34405E;
-    --c-hardware: #EDE7DA;    --t-hardware: #5A4A2C;     --c-healthcare: #D8EEEA; --t-healthcare: #1E5F57;
+    /* Role chips: full palette colors, so they stand out on a tinted card. */
+    --c-general_swe: #E8DCCF; --t-general_swe: #3A1024;  --c-backend: #667436;  --t-backend: #FFFFFF;
+    --c-frontend: #D9828D;    --t-frontend: #3A1024;     --c-ml: #621E3E;       --t-ml: #FFF8D6;
+    --c-ai: #A13D52;          --t-ai: #FFFFFF;           --c-data: #C6C954;     --t-data: #2E2A10;
+    --c-pm: #FFEC8E;          --t-pm: #621E3E;           --c-quant: #6E6F22;    --t-quant: #FFFFFF;
+    --c-hardware: #5F6648;    --t-hardware: #FFFFFF;     --c-healthcare: #1E5F57; --t-healthcare: #FFFFFF;
+
+    /* Cards (light mode): a very soft tint and a 4px left edge in the color
+       of the card's first role. Tints are light enough that all card text
+       keeps AA contrast; the edge is decoration (the chip names the role). */
+    --edge-w: 4px;
+    --k-general_swe: #FBF5EE; --e-general_swe: #C9B29C;  --k-backend: #F3F6EA;  --e-backend: #667436;
+    --k-frontend: #FCF0F1;    --e-frontend: #D9828D;     --k-ml: #F9EDF2;       --e-ml: #621E3E;
+    --k-ai: #FBEFF3;          --e-ai: #A13D52;           --k-data: #FAFAE4;     --e-data: #C6C954;
+    --k-pm: #FFFAE0;          --e-pm: #F0CF4A;           --k-quant: #F6F6E6;    --e-quant: #7D7E28;
+    --k-hardware: #F4F5EF;    --e-hardware: #8A9070;
     --c-today: #667436;       --t-today: #FFFFFF;        /* Cypress */
     --c-new: #FFEC8E;         --t-new: #621E3E;          /* Ylang Ylang */
     --c-bamboo: #C6C954;      --t-bamboo: #2E2A10;       /* Bamboo: secondary chips */
@@ -54,6 +65,14 @@
       --c-new: #FFEC8E;         --t-new: #3A1024;
       --c-bamboo: #C6C954;      --t-bamboo: #2E2A10;
       --c-warn: #4A2A16;        --t-warn: #FFC59E;
+
+      /* Dark mode keeps plain cards: berry edges would vanish on berry. */
+      --edge-w: 1px;
+      --k-general_swe: var(--surface); --e-general_swe: var(--line); --k-backend: var(--surface); --e-backend: var(--line);
+      --k-frontend: var(--surface);    --e-frontend: var(--line);    --k-ml: var(--surface);      --e-ml: var(--line);
+      --k-ai: var(--surface);          --e-ai: var(--line);          --k-data: var(--surface);    --e-data: var(--line);
+      --k-pm: var(--surface);          --e-pm: var(--line);          --k-quant: var(--surface);   --e-quant: var(--line);
+      --k-hardware: var(--surface);    --e-hardware: var(--line);
 
       --a0: #4A1830; --at0: #F7B5D4; --a1: #4A1E2A; --at1: #F4BCC4; --a2: #2E3418; --at2: #D8E2A8;
       --a3: #3A3A12; --at3: #E6E89A; --a4: #453812; --at4: #FFE38A; --a5: #3A2245; --at5: #E2C4EE;
