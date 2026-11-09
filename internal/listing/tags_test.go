@@ -75,11 +75,12 @@ func TestIndustries(t *testing.T) {
 		want        bool // tagged Healthcare?
 		needsReview bool
 	}{
-		{"CVS Health", true, true},
-		{"GE Healthcare", true, true},
-		{"Modernizing Medicine", true, true},
-		{"Regeneron Pharmaceuticals", true, true},
-		{"Mayo Clinic", true, true},
+		{"Acme Health", true, true},
+		{"Acme Healthcare", true, true},
+		{"Acme Medicine", true, true},
+		{"Acme Pharmaceuticals", true, true},
+		{"Acme Clinic", true, true},
+		{"CVS Health", true, false},                // keyword match, already approved
 		{"athenahealth", true, false},              // one word: only the always-list catches it
 		{"Medtronic", true, false},                 // no keyword at all
 		{"Medical Properties Trust", false, false}, // never-list beats the keyword

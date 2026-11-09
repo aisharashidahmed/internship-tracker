@@ -157,7 +157,13 @@ var industryRules = []industryRule{{
 		"medical properties trust", // a real-estate trust
 		"healthpeak properties",    // a real-estate trust
 	),
-	approved: set(),
+	approved: set( // reviewed 2026-11-08
+		"cardinal health", "cook medical", "courier health", "cvs health",
+		"fresenius medical care north america", "garner health", "ge healthcare",
+		"health care service", "highmark health", "mayo clinic", "modernizing medicine",
+		"molina healthcare", "regeneron pharmaceuticals", "universal health services",
+		"vertex pharmaceuticals", "zus health",
+	),
 	keywords: words(`health|healthcare|medical|medicine|pharma|pharmaceutical|pharmaceuticals|hospital|hospitals|clinic|therapeutics|biosciences`),
 }}
 
