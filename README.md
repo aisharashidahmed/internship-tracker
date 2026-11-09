@@ -1,7 +1,10 @@
 # internship-tracker (name TBD)
 
-Pulls internship listings from public GitHub repos, merges duplicates, and
-(soon) tracks your applications. Spec: `Internship Tracker — Project Spec.pdf`.
+**Live: https://internship-tracker-75xg.onrender.com** (works on any device; sign up free)
+
+Pulls internship listings from public GitHub repos every hour, merges
+duplicates, and tracks your applications, with starred companies and
+notifications.
 
 ## Run it
 
