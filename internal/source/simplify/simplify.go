@@ -26,6 +26,7 @@ type record struct {
 	Locations []string `json:"locations"`
 	Degrees   []string `json:"degrees"`
 	Posted    int64    `json:"date_posted"` // Unix seconds
+	Category  string   `json:"category"`    // "Software", "AI/ML/Data", "Hardware", "Product", "Quant"
 }
 
 // Adapter implements source.Adapter for Simplify.
@@ -59,6 +60,7 @@ func (Adapter) Parse(body []byte) ([]listing.Posting, error) {
 				DegreeLevel:     degreeLevel(r.Degrees),
 				Active:          r.Active,
 				PostedAt:        postedAt(r.Posted),
+				Section:         r.Category,
 			})
 		}
 	}

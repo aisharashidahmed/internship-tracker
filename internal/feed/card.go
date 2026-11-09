@@ -5,9 +5,11 @@ package feed
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
+	"internship-tracker/internal/listing"
 	"internship-tracker/internal/store"
 )
 
@@ -20,6 +22,9 @@ type Card struct {
 	Where    string `json:"where"`            // "Sunnyvale + 4 more"
 	Openings int    `json:"openings"`         // distinct job links still listed as active
 	Links    []Link `json:"links"`
+	// Tags, as stable ids ("ml", "healthcare"); labels are for the page only.
+	Roles      []string `json:"roles"`
+	Industries []string `json:"industries"`
 	// Stale: no source says closed, but none still lists it: "may be closed".
 	Stale              bool       `json:"stale"`
 	AdvancedDegreeOnly bool       `json:"advanced_degree_only"`
@@ -50,6 +55,8 @@ func NewCard(l store.FeedListing) Card {
 		PostedAt:           l.PostedAt,
 		FirstSeenAt:        l.FirstSeenAt,
 		Links:              []Link{},
+		Roles:              sortedRoles(l.Roles),
+		Industries:         append([]string{}, l.Industries...),
 	}
 
 	linkIndex := map[string]int{} // job identity -> index in c.Links
@@ -81,6 +88,15 @@ func NewCard(l store.FeedListing) Card {
 	c.Openings = len(c.Links)
 	c.Where = where(cities)
 	return c
+}
+
+// sortedRoles puts roles in the filter bar's order, so chips line up.
+func sortedRoles(roles []string) []string {
+	out := append([]string{}, roles...)
+	slices.SortFunc(out, func(a, b string) int {
+		return slices.Index(listing.AllRoles, listing.Role(a)) - slices.Index(listing.AllRoles, listing.Role(b))
+	})
+	return out
 }
 
 // where summarizes a city list: "Sunnyvale", "Sunnyvale + 4 more".

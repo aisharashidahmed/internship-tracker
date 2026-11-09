@@ -59,6 +59,9 @@ func (s *Store) SaveListing(ctx context.Context, sourceID int64, l listing.Listi
 	if err != nil {
 		return "", err
 	}
+	if err := s.refreshRoles(ctx, listingID); err != nil {
+		return "", err
+	}
 
 	switch {
 	case oldStatus == "":
@@ -227,28 +230,30 @@ func (s *Store) upsertPosting(ctx context.Context, listingID, sourceID int64, p 
 	if link, ok := listing.JobLink(p.ApplyURL); ok {
 		jobLink = &link
 	}
+	roles := listing.RoleStrings(listing.Roles(p.Title, p.Section))
 
 	err = s.db.QueryRow(ctx, `
 		WITH old AS (
-			SELECT apply_url, locations, active, missing_since FROM listing_sources
+			SELECT apply_url, locations, active, roles, missing_since FROM listing_sources
 			WHERE listing_id = $1 AND source_id = $2 AND source_listing_id = $3
 		)
-		INSERT INTO listing_sources (listing_id, source_id, source_listing_id, apply_url, locations, active, job_link, posted_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO listing_sources (listing_id, source_id, source_listing_id, apply_url, locations, active, job_link, posted_at, roles)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (listing_id, source_id, source_listing_id) DO UPDATE SET
 			apply_url     = EXCLUDED.apply_url,
 			locations     = EXCLUDED.locations,
 			active        = EXCLUDED.active,
 			job_link      = EXCLUDED.job_link,
 			posted_at     = EXCLUDED.posted_at,
+			roles         = EXCLUDED.roles,
 			missing_since = NULL, -- we just saw it
 			last_seen_at  = now()
 		RETURNING NOT EXISTS (
 			SELECT 1 FROM old
-			WHERE (old.apply_url, old.locations, old.active) = ($4, $5::text[], $6)
+			WHERE (old.apply_url, old.locations, old.active, old.roles) = ($4, $5::text[], $6, $9::text[])
 			  AND old.missing_since IS NULL
 		)`,
-		listingID, sourceID, p.SourceListingID, p.ApplyURL, locations, p.Active, jobLink, nullTime(p.PostedAt),
+		listingID, sourceID, p.SourceListingID, p.ApplyURL, locations, p.Active, jobLink, nullTime(p.PostedAt), roles,
 	).Scan(&changed)
 	if err != nil {
 		return false, fmt.Errorf("upsert posting %q: %w", p.SourceListingID, err)
@@ -330,6 +335,32 @@ func (s *Store) refreshStatus(ctx context.Context, listingID int64) (oldStatus, 
 		return "", "", fmt.Errorf("refresh status of listing %d: %w", listingID, err)
 	}
 	return oldStatus, newStatus, nil
+}
+
+// refreshRoles recomputes a listing's role tags from all its postings, from
+// every source: their union, without "general_swe" if any posting gave a
+// more specific role (one source's "Backend" beats another's "no signal").
+func (s *Store) refreshRoles(ctx context.Context, listingID int64) error {
+	_, err := s.db.Exec(ctx, `
+		WITH r AS (
+			SELECT DISTINCT unnest(roles) AS role FROM listing_sources WHERE listing_id = $1
+		),
+		wanted AS (
+			SELECT role FROM r
+			WHERE role <> 'general_swe' OR NOT EXISTS (SELECT 1 FROM r WHERE role <> 'general_swe')
+		),
+		removed AS (
+			DELETE FROM listing_roles
+			WHERE listing_id = $1 AND role NOT IN (SELECT role FROM wanted)
+		)
+		INSERT INTO listing_roles (listing_id, role)
+		SELECT $1, role FROM wanted
+		ON CONFLICT DO NOTHING`,
+		listingID)
+	if err != nil {
+		return fmt.Errorf("refresh roles of listing %d: %w", listingID, err)
+	}
+	return nil
 }
 
 // VisibleListings returns every listing the feed shows (open or stale),

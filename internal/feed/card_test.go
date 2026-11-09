@@ -1,6 +1,7 @@
 package feed
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -33,6 +34,9 @@ func TestNewCard_OpeningsAndWhere(t *testing.T) {
 	}
 	if c.Where != "Sunnyvale + 2 more" {
 		t.Errorf("where = %q, want %q", c.Where, "Sunnyvale + 2 more")
+	}
+	if got := NewCard(store.FeedListing{Roles: []string{"ml", "backend"}}).Roles; strings.Join(got, ",") != "backend,ml" {
+		t.Errorf("roles = %q, want filter-bar order backend,ml", got)
 	}
 	if got := c.Links[0].Sources; len(got) != 2 {
 		t.Errorf("R1 sources = %q, want both", got)

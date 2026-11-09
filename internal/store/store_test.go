@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -441,7 +442,7 @@ func TestFeed_Order(t *testing.T) {
 	save(simplifyID, false, "5", "Found later", daysAgo(30))
 	markMissing(t, s, "speedyapply") // "Will go stale" vanished from SpeedyApply
 
-	feed, err := s.Feed(ctx, listing.Internship, 10, 0)
+	feed, err := s.Feed(ctx, FeedQuery{JobType: listing.Internship, Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -505,5 +506,109 @@ func TestTryLockSource_SecondRunIsTurnedAway(t *testing.T) {
 	tx1.Rollback(ctx) // first run ends: its lock is released
 	if ok, _ := second.TryLockSource(ctx, 1); !ok {
 		t.Error("lock not released when the first transaction ended")
+	}
+}
+
+// --- Slice 6: tags ---
+
+func TestDB_ListingRoleIsUnique(t *testing.T) {
+	s := newTestStore(t)
+	saveFrom(t, s, "simplify", simplifyFigma)
+	id := scalar[int64](t, s, `SELECT id FROM listings`)
+	// SaveListing already tagged it general_swe; a second identical row must fail.
+	requireUniqueViolation(t, exec(t, s, `INSERT INTO listing_roles (listing_id, role) VALUES ($1, 'general_swe')`, id))
+}
+
+func TestDB_CompanyIndustryIsUnique(t *testing.T) {
+	s := newTestStore(t)
+	id := scalar[int64](t, s, `INSERT INTO companies (name, normalized_name) VALUES ('CVS Health', 'cvs health') RETURNING id`)
+	q := `INSERT INTO company_industries (company_id, industry, needs_review) VALUES ($1, 'healthcare', true)`
+	if err := exec(t, s, q, id); err != nil {
+		t.Fatal(err)
+	}
+	requireUniqueViolation(t, exec(t, s, q, id))
+}
+
+func roles(t *testing.T, s *Store) string {
+	t.Helper()
+	return scalar[string](t, s, `SELECT COALESCE(string_agg(role, ',' ORDER BY role), '') FROM listing_roles`)
+}
+
+func TestSave_SpecificRoleFromAnySourceBeatsGeneralSWE(t *testing.T) {
+	s := newTestStore(t)
+	saveFrom(t, s, "simplify", simplifyFigma) // "Software Engineer Intern": no signal
+	if got := roles(t, s); got != "general_swe" {
+		t.Fatalf("roles = %q, want general_swe", got)
+	}
+
+	// SpeedyApply lists the same job (same link) as a backend role.
+	saveFrom(t, s, "speedyapply", speedyPosting("Backend Software Engineer Intern",
+		"https://job-boards.greenhouse.io/figma/jobs/6241542004"))
+	if got := roles(t, s); got != "backend" {
+		t.Errorf("roles = %q, want backend (general_swe dropped)", got)
+	}
+}
+
+func TestFeed_Filters(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	add := func(company, title, section string) {
+		t.Helper()
+		p := listing.Posting{SourceListingID: title, Company: company, Title: title, Section: section,
+			JobType: listing.Internship, Season: "Summer 2027", ApplyURL: "https://x.com/jobs/" + title, Active: true}
+		saveFrom(t, s, "simplify", p)
+	}
+	add("Stripe", "Backend Engineer Intern", "Software")
+	add("Stripe", "Machine Learning Intern", "AI/ML/Data")
+	add("Stripe", "Backend ML Infrastructure Intern", "Software")
+	add("CVS Health", "Machine Learning Intern - Pharmacy", "AI/ML/Data")
+	if err := s.SyncIndustries(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	titles := func(q FeedQuery) string {
+		t.Helper()
+		q.JobType, q.Limit = listing.Internship, 50
+		feed, err := s.Feed(ctx, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, l := range feed {
+			got = append(got, l.Title)
+		}
+		slices.Sort(got)
+		return strings.Join(got, " | ")
+	}
+
+	backendOrML := titles(FeedQuery{Roles: []listing.Role{listing.Backend, listing.ML}})
+	if backendOrML != "Backend Engineer Intern | Backend ML Infrastructure Intern | Machine Learning Intern | Machine Learning Intern - Pharmacy" {
+		t.Errorf("Backend / ML = %s", backendOrML)
+	}
+	backendAndML := titles(FeedQuery{Roles: []listing.Role{listing.Backend, listing.ML}, MatchAllRoles: true})
+	if backendAndML != "Backend ML Infrastructure Intern" {
+		t.Errorf("Backend + ML = %s", backendAndML)
+	}
+	mlInHealthcare := titles(FeedQuery{Roles: []listing.Role{listing.ML}, Industries: []listing.Industry{listing.Healthcare}})
+	if mlInHealthcare != "Machine Learning Intern - Pharmacy" {
+		t.Errorf("ML + Healthcare = %s", mlInHealthcare)
+	}
+	if all := titles(FeedQuery{}); strings.Count(all, "|") != 3 {
+		t.Errorf("no filters should show all 4, got %s", all)
+	}
+}
+
+func TestSyncIndustries_RemovesTagsTheRulesNoLongerGive(t *testing.T) {
+	s := newTestStore(t)
+	id := scalar[int64](t, s, `INSERT INTO companies (name, normalized_name) VALUES ('Medical Properties Trust', 'medical properties trust') RETURNING id`)
+	// As if an older rule had tagged it, before it was on the never-list.
+	if err := exec(t, s, `INSERT INTO company_industries VALUES ($1, 'healthcare', true)`, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SyncIndustries(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if n := scalar[int](t, s, `SELECT count(*) FROM company_industries WHERE company_id = $1`, id); n != 0 {
+		t.Errorf("Medical Properties Trust still tagged healthcare")
 	}
 }

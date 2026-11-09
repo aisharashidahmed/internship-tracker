@@ -52,6 +52,9 @@ func main() {
 	if err := printPossibleDuplicates(ctx, in.Store); err != nil {
 		log.Fatal(err)
 	}
+	if err := printIndustryReview(ctx, in.Store); err != nil {
+		log.Fatal(err)
+	}
 	if failed > 0 {
 		fmt.Fprintf(os.Stderr, "\n%d source(s) failed\n", failed)
 		os.Exit(1)
@@ -99,6 +102,21 @@ func printPossibleDuplicates(ctx context.Context, s *store.Store) error {
 			p.B.ID, p.B.Title, seasonOrUnknown(p.B.Season))
 	}
 	fmt.Println("  (ignored = inactive on the source and never stored; stale = vanished from its source, may be closed)")
+	return nil
+}
+
+// printIndustryReview lists companies a keyword tagged ("Health",
+// "Medical", ...) that nobody has reviewed. Move each to the "approved" or
+// "never" list in internal/listing/tags.go; it won't be listed again.
+func printIndustryReview(ctx context.Context, s *store.Store) error {
+	tagged, err := s.IndustriesToReview(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("\nindustry review: %d new keyword match(es) (move each to approved or never in internal/listing/tags.go)\n", len(tagged))
+	for _, t := range tagged {
+		fmt.Println("  " + t)
+	}
 	return nil
 }
 

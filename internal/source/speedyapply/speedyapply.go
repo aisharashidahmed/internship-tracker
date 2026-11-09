@@ -42,9 +42,13 @@ func (a Adapter) Parse(body []byte) ([]listing.Posting, error) {
 
 	var postings []listing.Posting
 	var columns map[string]int // column name -> index, from the current table's header
+	section := ""              // the latest "### FAANG+" / "### Quant" / "### Other" heading
 
 	for n, line := range strings.Split(string(body), "\n") {
 		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "### ") {
+			section = strings.TrimSpace(strings.TrimPrefix(line, "### "))
+		}
 		if !strings.HasPrefix(line, "|") {
 			columns = nil // a table ends at the first non-table line
 			continue
@@ -60,6 +64,7 @@ func (a Adapter) Parse(body []byte) ([]listing.Posting, error) {
 		case isDivider(cells): // |---|---|
 		default:
 			p, err := parseRow(cells, columns, now)
+			p.Section = section
 			if err != nil {
 				return nil, fmt.Errorf("speedyapply: line %d: %w", n+1, err)
 			}

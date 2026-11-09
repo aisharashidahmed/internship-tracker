@@ -78,6 +78,25 @@ the source says the job was posted (they'd otherwise all share one
 first-seen time); for listings found later, when this app first saw them.
 Unknown dates go last.
 
+## Tags and filters
+
+**Role tags** (a listing can have several): General SWE, Backend, Frontend,
+ML, Data, PM, Quant, Hardware. They come from the source's own section
+(Simplify's Quant / Hardware / Product / AI/ML/Data, SpeedyApply's Quant) and
+from whole-word title keywords ("Backend", "Machine Learning", "APM", ...).
+General SWE means no more specific signal. Simplify's Product section gives PM
+only when the title says "product" (it also holds marketing and payments
+roles); those others get no role tag rather than a wrong one.
+
+**Industry tags** are per company, from `internal/listing/tags.go`: an
+*always* list, a *never* list, an *approved* list, and whole-word keywords
+("Health", "Medical", ...). `cmd/ingest` prints an **industry review** of
+keyword matches nobody has approved yet; move each to *approved* or *never*.
+
+**Filters** live in the URL (`?type=internship&role=backend&role=ml&match=all&industry=healthcare`).
+Roles match **any** ("Backend / ML") or **all** ("Backend + ML"); different
+filter groups always combine with AND.
+
 ## How the code is laid out
 
 Data flows one way: **source file → postings → listings → database**.

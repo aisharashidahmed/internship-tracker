@@ -36,6 +36,7 @@ type Posting struct {
 	DegreeLevel     DegreeLevel
 	Active          bool      // false when the source has marked it closed
 	PostedAt        time.Time // when the source says it was posted; zero if unknown
+	Section         string    // the source's own grouping, e.g. "Quant"; "" if none
 }
 
 // Listing is one real job: all postings that share a dedupe key.

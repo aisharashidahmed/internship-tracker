@@ -18,11 +18,16 @@ type Result struct {
 
 // RunAll ingests every source in order. A failing source doesn't stop the
 // others: its error goes in its Result, and the next source still runs.
+// Afterwards it re-tags company industries (cheap, and it means a rule
+// change applies on the next run even if no source file changed).
 func (in *Ingester) RunAll(ctx context.Context, adapters []source.Adapter, opts Options) []Result {
 	results := make([]Result, 0, len(adapters))
 	for _, a := range adapters {
 		report, err := in.Run(ctx, a, opts)
 		results = append(results, Result{Report: report, Err: err})
+	}
+	if err := in.Store.SyncIndustries(ctx); err != nil {
+		results = append(results, Result{Report: Report{Source: "industry tags"}, Err: err})
 	}
 	return results
 }

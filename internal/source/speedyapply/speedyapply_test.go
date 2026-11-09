@@ -26,6 +26,10 @@ func TestParse(t *testing.T) {
 
 	tiktok, citadel, astranis := got[0], got[1], got[2]
 
+	if tiktok.Section != "FAANG+" || citadel.Section != "Quant" || astranis.Section != "Other" {
+		t.Errorf("sections = %q, %q, %q; want FAANG+, Quant, Other", tiktok.Section, citadel.Section, astranis.Section)
+	}
+
 	if tiktok.Company != "TikTok" || tiktok.Season != "" {
 		t.Errorf("TikTok: company %q season %q; want TikTok and unknown season (title only says 2027)",
 			tiktok.Company, tiktok.Season)

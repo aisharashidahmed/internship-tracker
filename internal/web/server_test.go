@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -22,13 +23,14 @@ type fakeFeed struct {
 	err      error
 }
 
-func (f fakeFeed) Feed(_ context.Context, jobType listing.JobType, limit, offset int) ([]store.FeedListing, error) {
+func (f fakeFeed) Feed(_ context.Context, q store.FeedQuery) ([]store.FeedListing, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
-	if jobType != listing.Internship {
+	if q.JobType != listing.Internship {
 		return nil, nil
 	}
+	limit, offset := q.Limit, q.Offset
 	if offset >= len(f.listings) {
 		return nil, nil
 	}
@@ -92,7 +94,7 @@ func TestFeedPage_ShowsCards(t *testing.T) {
 	if res.StatusCode != 200 {
 		t.Fatalf("status %d", res.StatusCode)
 	}
-	for _, want := range []string{"AI R&amp;D Engineer Co-op", "Sunnyvale", "posted 3 days ago", "may be closed", "first seen today"} {
+	for _, want := range []string{"AI R&amp;D Engineer Co-op", "Sunnyvale", "posted 3 days ago", "May be closed", "first seen today"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page is missing %q", want)
 		}
@@ -105,20 +107,20 @@ func TestFeed_Toggle(t *testing.T) {
 	_, body := get(t, f, "/api/listings") // no ?type: Internships
 	var p Page
 	json.Unmarshal([]byte(body), &p)
-	if p.JobType != listing.Internship || len(p.Cards) != 2 {
-		t.Errorf("default tab: %s with %d cards, want internship with 2", p.JobType, len(p.Cards))
+	if p.Filters.JobType != listing.Internship || len(p.Cards) != 2 {
+		t.Errorf("default tab: %s with %d cards, want internship with 2", p.Filters.JobType, len(p.Cards))
 	}
 
 	_, body = get(t, f, "/api/listings?type=new_grad")
 	p = Page{}
 	json.Unmarshal([]byte(body), &p)
-	if p.JobType != listing.NewGrad || len(p.Cards) != 0 {
-		t.Errorf("new grad tab: %s with %d cards, want new_grad with 0", p.JobType, len(p.Cards))
+	if p.Filters.JobType != listing.NewGrad || len(p.Cards) != 0 {
+		t.Errorf("new grad tab: %s with %d cards, want new_grad with 0", p.Filters.JobType, len(p.Cards))
 	}
 
 	_, html := get(t, f, "/?type=new_grad&page=1")
-	if !strings.Contains(html, `href="?type=new_grad" class="on"`) {
-		t.Error("New grad tab is not highlighted on its own page")
+	if !strings.Contains(html, `value="new_grad" checked`) {
+		t.Error("New grad is not selected on its own page")
 	}
 }
 
@@ -135,5 +137,41 @@ func TestAgo(t *testing.T) {
 		if got := ago(now.Add(-d), now); got != want {
 			t.Errorf("ago(-%v) = %q, want %q", d, got, want)
 		}
+	}
+}
+
+// fakeRecorder remembers the query the server asked for.
+type fakeRecorder struct{ got *store.FeedQuery }
+
+func (f fakeRecorder) Feed(_ context.Context, q store.FeedQuery) ([]store.FeedListing, error) {
+	*f.got = q
+	return nil, nil
+}
+
+func TestFilters_FromURL(t *testing.T) {
+	var q store.FeedQuery
+	_, html := get(t, fakeRecorder{&q}, "/?type=new_grad&role=backend&role=ml&role=nonsense&role=ml&match=all&industry=healthcare&industry=crypto&page=2")
+
+	if q.JobType != listing.NewGrad || !q.MatchAllRoles || q.Offset != PageSize {
+		t.Errorf("query = %+v", q)
+	}
+	if !slices.Equal(q.Roles, []listing.Role{listing.Backend, listing.ML}) {
+		t.Errorf("roles = %v, want [backend ml] (unknown and repeated values dropped)", q.Roles)
+	}
+	if !slices.Equal(q.Industries, []listing.Industry{listing.Healthcare}) {
+		t.Errorf("industries = %v, want [healthcare]", q.Industries)
+	}
+	for _, want := range []string{`name="role" value="backend" checked`, `name="match" value="all" checked`,
+		`name="industry" value="healthcare" checked`, "No listings match these filters", `href="?type=new_grad"`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("page is missing %s", want)
+		}
+	}
+}
+
+func TestFilters_PageLinksKeepFilters(t *testing.T) {
+	f := Filters{JobType: listing.Internship, Roles: []listing.Role{listing.ML}, Industries: []listing.Industry{listing.Healthcare}}
+	if got := f.query(3); got != "?industry=healthcare&page=3&role=ml&type=internship" {
+		t.Errorf("query(3) = %s", got)
 	}
 }
