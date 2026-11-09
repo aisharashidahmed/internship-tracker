@@ -235,3 +235,20 @@ func TestTimezone_FromBrowserAndShownInIt(t *testing.T) {
 		t.Errorf("timezone %q, want the default America/New_York", u.Timezone)
 	}
 }
+
+func TestTracker_ShowsWhyAListingClosed(t *testing.T) {
+	accounts, tracker := newFakeAccounts(), newFakeTracker()
+	b := signedIn(t, "a@college.edu", accounts, tracker)
+	b.post("/applications", url.Values{"listing_id": {"1"}, "stage": {"applied"}})
+	b.post("/applications", url.Values{"listing_id": {"2"}, "stage": {"applied"}})
+	tracker.apps[1].ListingStatus, tracker.apps[1].ClosedReason = "closed", "link"
+	tracker.apps[2].ListingStatus, tracker.apps[2].ClosedReason = "closed", "source"
+
+	_, page := b.get("/applications")
+	if !strings.Contains(page, "Closed · link no longer works") || !strings.Contains(page, "Closed · source marked closed") {
+		t.Error("My applications should say why each listing closed")
+	}
+	if _, page := b.get("/applications/1"); !strings.Contains(page, "Closed · link no longer works") {
+		t.Error("the application page should say why its listing closed")
+	}
+}

@@ -71,7 +71,7 @@ func NewCard(l store.FeedListing, newSince *time.Time) Card {
 	linkIndex := map[string]int{} // job identity -> index in c.Links
 	var cities []string
 	for _, p := range l.Postings {
-		if !p.Active {
+		if !p.Active || p.LinkDead { // a closed or dead link is not an opening
 			continue
 		}
 		cities = appendNew(cities, p.Locations...)

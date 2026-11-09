@@ -13,7 +13,7 @@
         <div class="title">{{.Title}}</div>
         <div class="company">{{.Company}}</div>
         <div class="meta">
-          <span>{{.StageLabel}}{{if and .ExpectedRounds .InterviewRound}} of {{.ExpectedRounds}}{{end}}</span>{{if .AppliedOn}}<span>applied {{.AppliedOn.Format "Jan 2"}}</span>{{end}}{{if .ResumeLabel}}<span>{{.ResumeLabel}}</span>{{end}}{{if eq .ListingStatus "closed"}}<span>listing closed</span>{{else if eq .ListingStatus "stale"}}<span>listing may be closed</span>{{end}}
+          <span>{{.StageLabel}}{{if and .ExpectedRounds .InterviewRound}} of {{.ExpectedRounds}}{{end}}</span>{{if .AppliedOn}}<span>applied {{.AppliedOn.Format "Jan 2"}}</span>{{end}}{{if .ResumeLabel}}<span>{{.ResumeLabel}}</span>{{end}}{{if eq .ListingStatus "closed"}}<span class="closed-note">{{if eq .ClosedReason "link"}}Closed · link no longer works{{else}}Closed · source marked closed{{end}}</span>{{else if eq .ListingStatus "stale"}}<span>listing may be closed</span>{{end}}
         </div>
       </div>
     </a>

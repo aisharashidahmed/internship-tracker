@@ -4,7 +4,7 @@
   <p class="sub"><a href="/applications">← My applications</a></p>
   <h1 class="title-lg">{{.App.Title}}</h1>
   <div class="company">{{.App.Company}}{{if .App.Season}} · {{.App.Season}}{{end}}</div>
-  <p class="meta">Now: <strong>{{.StageLabel}}</strong>{{if and .App.ExpectedRounds .App.InterviewRound}} of {{.App.ExpectedRounds}} expected{{end}}{{if eq .App.ListingStatus "closed"}} · the listing has closed{{end}}</p>
+  <p class="meta">Now: <strong>{{.StageLabel}}</strong>{{if and .App.ExpectedRounds .App.InterviewRound}} of {{.App.ExpectedRounds}} expected{{end}}{{if eq .App.ListingStatus "closed"}} · <span class="closed-note">{{if eq .App.ClosedReason "link"}}Closed · link no longer works{{else}}Closed · source marked closed{{end}}</span>{{else if eq .App.ListingStatus "stale"}} · listing may be closed{{end}}</p>
 
   {{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
 

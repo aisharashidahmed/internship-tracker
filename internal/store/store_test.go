@@ -1218,3 +1218,123 @@ func TestMoveStage_AppliedDateIsTheUsersToday(t *testing.T) {
 		t.Errorf("applied on %s, want 2026-11-08 (the user's date)", got)
 	}
 }
+
+// --- Slice 10: link checks ---
+
+func postingID(t *testing.T, s *Store, source string) int64 {
+	t.Helper()
+	return scalar[int64](t, s, `SELECT ls.id FROM listing_sources ls JOIN sources src ON src.id = ls.source_id
+		WHERE src.name = $1 ORDER BY ls.id LIMIT 1`, source)
+}
+
+func check(t *testing.T, s *Store, id int64, r LinkResult) bool {
+	t.Helper()
+	closed, err := s.RecordLinkCheck(context.Background(), id, r, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return closed
+}
+
+func TestLinkCheck_ThreeDeadInARowCloses(t *testing.T) {
+	s := newTestStore(t)
+	saveFrom(t, s, "simplify", simplifyFigma)
+	id := postingID(t, s, "simplify")
+
+	check(t, s, id, LinkDead)
+	check(t, s, id, LinkUnknown) // a timeout in between neither counts nor resets
+	if closed := check(t, s, id, LinkDead); closed {
+		t.Fatal("closed after 2 dead results; it takes 3")
+	}
+	if closed := check(t, s, id, LinkDead); !closed {
+		t.Fatal("not closed after 3 dead results")
+	}
+	if got := scalar[string](t, s, `SELECT status || '/' || closed_reason FROM listings`); got != "closed/link" {
+		t.Errorf("listing = %s, want closed/link", got)
+	}
+
+	// The job comes back (re-posted at the same link): open again.
+	check(t, s, id, LinkAlive)
+	if got := scalar[string](t, s, `SELECT status || '/' || COALESCE(closed_reason, '-') FROM listings`); got != "open/-" {
+		t.Errorf("after an alive check: %s, want open/-", got)
+	}
+}
+
+func TestLinkCheck_AliveResetsTheCount(t *testing.T) {
+	s := newTestStore(t)
+	saveFrom(t, s, "simplify", simplifyFigma)
+	id := postingID(t, s, "simplify")
+	check(t, s, id, LinkDead)
+	check(t, s, id, LinkDead)
+	check(t, s, id, LinkAlive)
+	check(t, s, id, LinkDead)
+	if got := scalar[string](t, s, `SELECT status FROM listings`); got != StatusOpen {
+		t.Errorf("status %s: dead, dead, alive, dead is not 3 in a row", got)
+	}
+}
+
+func TestLinkCheck_AnotherWorkingLinkKeepsItOpen(t *testing.T) {
+	s := newTestStore(t)
+	saveFrom(t, s, "simplify", simplifyFigma)
+	saveFrom(t, s, "speedyapply", speedyPosting("Software Engineer Intern", "https://jobs.ashbyhq.com/figma/3fba1c39-c5cb-47d7-9ad2-1cec4d7e9d0c"))
+	id := postingID(t, s, "simplify")
+	for range DeadAfter {
+		check(t, s, id, LinkDead)
+	}
+	if got := scalar[string](t, s, `SELECT status FROM listings`); got != StatusOpen {
+		t.Errorf("status %s; SpeedyApply's link still works, so it stays open", got)
+	}
+}
+
+func TestLinkCheck_SourceClosedReason(t *testing.T) {
+	s := newTestStore(t)
+	saveFrom(t, s, "simplify", simplifyFigma)
+	closed := simplifyFigma
+	closed.Active = false
+	saveFrom(t, s, "simplify", closed)
+	if got := scalar[string](t, s, `SELECT closed_reason FROM listings`); got != "source" {
+		t.Errorf("closed_reason = %s, want source", got)
+	}
+}
+
+func TestLinkCheck_NewApplyLinkStartsClean(t *testing.T) {
+	s := newTestStore(t)
+	saveFrom(t, s, "simplify", simplifyFigma)
+	id := postingID(t, s, "simplify")
+	for range DeadAfter {
+		check(t, s, id, LinkDead)
+	}
+	moved := simplifyFigma
+	moved.ApplyURL = "https://job-boards.greenhouse.io/figma/jobs/6241542004?gh_src=new" // same job, new URL
+	saveFrom(t, s, "simplify", moved)
+	if got := scalar[string](t, s, `SELECT ls.link_failures || '/' || (ls.link_dead_at IS NULL) || '/' || l.status
+		FROM listing_sources ls JOIN listings l ON l.id = ls.listing_id`); got != "0/true/open" {
+		t.Errorf("after the source changed the link: %s, want 0/true/open", got)
+	}
+}
+
+func TestDueLinks(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	saveFrom(t, s, "simplify", simplifyFigma) // job-specific link: due
+	generic := simplifyFigma
+	generic.SourceListingID, generic.ApplyURL, generic.Season = "g", "https://figma.com/careers", "Fall 2027"
+	saveFrom(t, s, "simplify", generic) // generic link: never checked
+
+	due, err := s.DueLinks(ctx, 10)
+	if err != nil || len(due) != 1 || !strings.Contains(due[0].URL, "6241542004") {
+		t.Fatalf("due = %+v, %v; want only the job-specific link", due, err)
+	}
+	check(t, s, due[0].PostingID, LinkAlive)
+	if due, _ := s.DueLinks(ctx, 10); len(due) != 0 {
+		t.Errorf("checked just now, still due: %+v", due)
+	}
+}
+
+func TestDB_ClosedReasonMatchesStatus(t *testing.T) {
+	s := newTestStore(t)
+	saveFrom(t, s, "simplify", simplifyFigma)
+	if err := exec(t, s, `UPDATE listings SET closed_reason = 'link'`); err == nil {
+		t.Error("an open listing with a closed reason was accepted")
+	}
+}

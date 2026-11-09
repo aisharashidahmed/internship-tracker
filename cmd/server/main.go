@@ -18,6 +18,7 @@ import (
 
 	"internship-tracker/internal/db"
 	"internship-tracker/internal/ingest"
+	"internship-tracker/internal/linkcheck"
 	"internship-tracker/internal/source"
 	"internship-tracker/internal/store"
 	"internship-tracker/internal/web"
@@ -25,6 +26,7 @@ import (
 
 func main() {
 	every := flag.Duration("ingest-every", time.Hour, "how often to ingest every source (0 turns it off)")
+	checkEvery := flag.Duration("check-links-every", time.Hour, "how often to check due apply links (0 turns it off)")
 	flag.Parse()
 
 	// ctx is cancelled on Ctrl-C (or a stop signal), which stops both the
@@ -50,6 +52,26 @@ func main() {
 			}
 		})
 		log.Printf("ingesting now, then every %s", *every)
+	}
+
+	if *checkEvery > 0 {
+		// Each run checks the links that are due (each link once a day),
+		// oldest first, at most 400 per run, so the work spreads out.
+		checker := &linkcheck.Checker{
+			Store:     st,
+			Client:    linkcheck.NewClient(),
+			UserAgent: linkcheck.Agent + "/1.0 (+https://github.com/aisharashidahmed/internship-tracker)",
+			PerHost:   5 * time.Second, // never more than one request every 5 seconds to a website
+			Sites:     6,
+		}
+		go ingest.Every(ctx, *checkEvery, func(ctx context.Context) {
+			sum, err := checker.Run(ctx, 400)
+			if err != nil && ctx.Err() == nil {
+				log.Printf("link checks: %v", err)
+			}
+			log.Print(sum)
+		})
+		log.Printf("checking apply links now, then every %s", *checkEvery)
 	}
 
 	// COOKIE_SECURE=1 in production (HTTPS); plain http://localhost needs it off.

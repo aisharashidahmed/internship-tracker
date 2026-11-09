@@ -132,6 +132,23 @@ leaves its old one; an old listing left with no postings is merged into the
 new one, unless the same person applied to both, in which case both are kept and
 listed as possible duplicates. A merge moves applications to the remaining listing.
 
+## Closed-listing detection
+
+Sources are sometimes slow to mark a job closed, so the server also checks
+each job-specific apply link once a day (generic careers pages are never
+checked). Only clear signals count: HTTP 404/410, or Greenhouse redirecting a
+job link back to the company's board. Anything ambiguous (timeouts, 403/429
+bot blocking, 5xx outages, Workday's JavaScript pages) is "couldn't tell" and
+never closes anything. After **3 clear failures in a row** the link is dead;
+a listing closes when none of its postings is still active with a working
+link. Closed listings say why: "Closed · source marked closed" or
+"Closed · link no longer works". A dead link that comes back reopens it.
+
+Politeness: robots.txt is read and obeyed (cached a day), at most one
+request every 5 seconds to any website, a user agent naming this project,
+at most 3 same-site redirects, and only the first 64 KB of a page is read.
+`go run ./cmd/server -check-links-every=0` turns checking off.
+
 ## Time zones
 
 Times are stored as absolute moments (`timestamptz`), and every database

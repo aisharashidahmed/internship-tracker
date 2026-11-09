@@ -246,6 +246,10 @@ func (s *Store) upsertPosting(ctx context.Context, listingID, sourceID int64, p 
 			job_link      = EXCLUDED.job_link,
 			posted_at     = EXCLUDED.posted_at,
 			roles         = EXCLUDED.roles,
+			-- A new apply link starts with a clean check record.
+			link_failures   = CASE WHEN listing_sources.apply_url = EXCLUDED.apply_url THEN listing_sources.link_failures ELSE 0 END,
+			link_dead_at    = CASE WHEN listing_sources.apply_url = EXCLUDED.apply_url THEN listing_sources.link_dead_at END,
+			link_checked_at = CASE WHEN listing_sources.apply_url = EXCLUDED.apply_url THEN listing_sources.link_checked_at END,
 			missing_since = NULL, -- we just saw it
 			last_seen_at  = now()
 		RETURNING NOT EXISTS (
@@ -307,25 +311,30 @@ func (s *Store) MarkMissing(ctx context.Context, sourceID int64, seen []string) 
 }
 
 // refreshStatus recomputes a listing's status from all its postings, from
-// every source, and returns the status before and after:
+// every source, and returns the status before and after. A posting counts
+// as "active" if its source says so and its link isn't dead:
 //
 //	open   - some posting is active and still listed by its source
 //	stale  - some posting is active, but none of those is still listed
-//	closed - every posting is explicitly inactive
+//	closed - no posting is active; closed_reason says why:
+//	         'link' if a source still lists it but every such link is dead,
+//	         'source' if the sources marked it closed
 func (s *Store) refreshStatus(ctx context.Context, listingID int64) (oldStatus, newStatus string, err error) {
 	err = s.db.QueryRow(ctx, `
 		WITH p AS (
 			SELECT CASE
-				WHEN bool_or(active AND missing_since IS NULL) THEN 'open'
-				WHEN bool_or(active)                           THEN 'stale'
-				ELSE                                                'closed'
-			END AS status
+				WHEN bool_or(active AND link_dead_at IS NULL AND missing_since IS NULL) THEN 'open'
+				WHEN bool_or(active AND link_dead_at IS NULL)                           THEN 'stale'
+				ELSE                                                                         'closed'
+			END AS status,
+			CASE WHEN bool_or(active AND link_dead_at IS NOT NULL) THEN 'link' ELSE 'source' END AS reason
 			FROM listing_sources WHERE listing_id = $1
 		),
 		old AS (SELECT status FROM listings WHERE id = $1)
 		UPDATE listings l SET
-			status    = p.status,
-			closed_at = CASE WHEN p.status = 'closed' THEN COALESCE(l.closed_at, now()) END
+			status        = p.status,
+			closed_at     = CASE WHEN p.status = 'closed' THEN COALESCE(l.closed_at, now()) END,
+			closed_reason = CASE WHEN p.status = 'closed' THEN p.reason END
 		FROM p
 		WHERE l.id = $1
 		RETURNING (SELECT status FROM old), l.status`,

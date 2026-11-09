@@ -101,6 +101,7 @@ type FeedPosting struct {
 	Locations    []string
 	Active       bool
 	MissingSince *time.Time // set if the source stopped listing it
+	LinkDead     bool       // the link checker found the link no longer works
 }
 
 // Feed returns one page of visible listings matching q: open before stale,
@@ -141,7 +142,8 @@ func (s *Store) Feed(ctx context.Context, q FeedQuery) ([]FeedListing, error) {
 		byID[listings[i].ID] = &listings[i]
 	}
 	rows, err = s.db.Query(ctx, `
-		SELECT ls.listing_id, src.name, ls.apply_url, ls.job_link, ls.locations, ls.active, ls.missing_since
+		SELECT ls.listing_id, src.name, ls.apply_url, ls.job_link, ls.locations, ls.active, ls.missing_since,
+		       ls.link_dead_at IS NOT NULL
 		FROM listing_sources ls JOIN sources src ON src.id = ls.source_id
 		WHERE ls.listing_id = ANY($1)
 		ORDER BY ls.id`,
@@ -153,7 +155,7 @@ func (s *Store) Feed(ctx context.Context, q FeedQuery) ([]FeedListing, error) {
 	for rows.Next() {
 		var listingID int64
 		var p FeedPosting
-		if err := rows.Scan(&listingID, &p.Source, &p.ApplyURL, &p.JobLink, &p.Locations, &p.Active, &p.MissingSince); err != nil {
+		if err := rows.Scan(&listingID, &p.Source, &p.ApplyURL, &p.JobLink, &p.Locations, &p.Active, &p.MissingSince, &p.LinkDead); err != nil {
 			return nil, fmt.Errorf("feed postings: %w", err)
 		}
 		byID[listingID].Postings = append(byID[listingID].Postings, p)

@@ -48,6 +48,7 @@ type Application struct {
 	Title           string
 	Season          string
 	ListingStatus   string // open, stale, closed
+	ClosedReason    string // when closed: "source" or "link"
 	Stage           Stage
 	InterviewRound  *int
 	ExpectedRounds  *int
@@ -219,7 +220,7 @@ func (s *Store) DeleteApplication(ctx context.Context, userID, appID int64) erro
 }
 
 const applicationColumns = `
-	a.id, a.listing_id, c.name, l.title, l.season, l.status, a.stage, a.interview_round, a.expected_rounds,
+	a.id, a.listing_id, c.name, l.title, l.season, l.status, COALESCE(l.closed_reason, ''), a.stage, a.interview_round, a.expected_rounds,
 	a.applied_on, a.resume_version_id, COALESCE(r.label, ''), a.notes, a.updated_at
 	FROM applications a
 	JOIN listings l ON l.id = a.listing_id
@@ -228,7 +229,7 @@ const applicationColumns = `
 
 func scanApplication(row pgx.CollectableRow) (Application, error) {
 	var a Application
-	err := row.Scan(&a.ID, &a.ListingID, &a.Company, &a.Title, &a.Season, &a.ListingStatus, &a.Stage,
+	err := row.Scan(&a.ID, &a.ListingID, &a.Company, &a.Title, &a.Season, &a.ListingStatus, &a.ClosedReason, &a.Stage,
 		&a.InterviewRound, &a.ExpectedRounds, &a.AppliedOn, &a.ResumeVersionID, &a.ResumeLabel, &a.Notes, &a.UpdatedAt)
 	return a, err
 }
