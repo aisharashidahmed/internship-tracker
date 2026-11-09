@@ -124,15 +124,16 @@ func (s *Server) applicationsPage(w http.ResponseWriter, r *http.Request) {
 
 // ApplicationPage is the data for one application.
 type ApplicationPage struct {
-	User       *store.User
-	Nav        *Nav
-	Loc        *time.Location
-	App        store.Application
-	StageLabel string
-	Events     []EventRow
-	Resumes    []store.ResumeVersion
-	Stages     []StageOption
-	Error      string
+	ShareOutcome, ShareReason string // the latest share review, if any
+	User                      *store.User
+	Nav                       *Nav
+	Loc                       *time.Location
+	App                       store.Application
+	StageLabel                string
+	Events                    []EventRow
+	Resumes                   []store.ResumeVersion
+	Stages                    []StageOption
+	Error                     string
 }
 
 // EventRow is one line of the history.
@@ -176,7 +177,12 @@ func (s *Server) showApplication(w http.ResponseWriter, r *http.Request, status 
 		return
 	}
 
-	page := ApplicationPage{User: u, Nav: s.nav(r), Loc: s.location(r), App: app, StageLabel: feed.StageLabel(app.Stage, app.InterviewRound),
+	shareOutcome, shareReason, err := s.imports.LastShare(r.Context(), u.ID, app.ListingID)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	page := ApplicationPage{ShareOutcome: shareOutcome, ShareReason: shareReason, User: u, Nav: s.nav(r), Loc: s.location(r), App: app, StageLabel: feed.StageLabel(app.Stage, app.InterviewRound),
 		Resumes: resumes, Error: errMsg}
 	for _, e := range events {
 		label := feed.StageLabel(e.To, e.InterviewRound)

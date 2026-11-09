@@ -142,7 +142,7 @@ func newBrowser(t *testing.T, accounts Accounts) *browser {
 
 func newBrowserWithFeed(t *testing.T, f FeedReader, accounts Accounts) *browser {
 	t.Helper()
-	s, err := New(f, accounts, newFakeTracker(), newFakeStars(), Options{})
+	s, err := New(f, accounts, newFakeTracker(), newFakeStars(), newFakeImports(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

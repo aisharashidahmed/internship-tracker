@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -14,7 +15,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"internship-tracker/internal/db"
+	"internship-tracker/internal/jobimport"
 	"internship-tracker/internal/listing"
+	"internship-tracker/internal/safefetch"
 	"internship-tracker/internal/source/speedyapply"
 )
 
@@ -1682,5 +1685,228 @@ func TestFeed_StarredOnly(t *testing.T) {
 	}
 	if n, _ := s.CountFeed(ctx, FeedQuery{JobType: listing.Internship, StarredOnly: true}); n != 2 {
 		t.Errorf("logged out, the starred filter does nothing: %d, want 2", n)
+	}
+}
+
+// --- Adding jobs by link, private listings, sharing ---
+
+func TestImports_DailyLimit(t *testing.T) {
+	s := newTestStore(t)
+	uid := newUser(t, s, "a@b.co")
+	links := make([]string, DailyImportLimit)
+	for i := range links {
+		links[i] = fmt.Sprintf("https://x.com/jobs/%d0000", i)
+	}
+	if n, err := s.EnqueueImports(context.Background(), uid, links); err != nil || n != DailyImportLimit {
+		t.Fatalf("first %d: %d, %v", DailyImportLimit, n, err)
+	}
+	if _, err := s.EnqueueImports(context.Background(), uid, []string{"https://x.com/jobs/99999"}); !errors.Is(err, ErrImportLimit) {
+		t.Errorf("link %d: err = %v, want ErrImportLimit", DailyImportLimit+1, err)
+	}
+}
+
+func TestImports_TwoWorkersNeverClaimTheSameLink(t *testing.T) {
+	ctx := context.Background()
+	setup, _ := testPool.Begin(ctx)
+	defer setup.Rollback(ctx)
+	// This test needs committed rows visible to two transactions.
+	var uid int64
+	testPool.QueryRow(ctx, `INSERT INTO users (email, password_hash) VALUES ('claim-test@b.co','x') RETURNING id`).Scan(&uid)
+	defer testPool.Exec(ctx, `DELETE FROM users WHERE id = $1`, uid)
+	testPool.Exec(ctx, `INSERT INTO job_imports (user_id, url) VALUES ($1, 'https://a.com/jobs/11111'), ($1, 'https://a.com/jobs/22222')`, uid)
+
+	tx1, _ := testPool.Begin(ctx)
+	defer tx1.Rollback(ctx)
+	tx2, _ := testPool.Begin(ctx)
+	defer tx2.Rollback(ctx)
+	a, okA, _ := (&Store{db: tx1}).ClaimImport(ctx)
+	b, okB, _ := (&Store{db: tx2}).ClaimImport(ctx) // while tx1 still holds its row
+	if !okA || !okB || a.ID == b.ID {
+		t.Errorf("claims: %v %d / %v %d; want two different links", okA, a.ID, okB, b.ID)
+	}
+}
+
+// saveImport runs one link through Finish and Save for a user.
+func saveImport(t *testing.T, s *Store, uid int64, link string, r jobimport.Result) (appID int64) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := s.EnqueueImports(ctx, uid, []string{link}); err != nil {
+		t.Fatal(err)
+	}
+	id := scalar[int64](t, s, `SELECT max(id) FROM job_imports WHERE user_id = $1`, uid)
+	if err := s.FinishImport(ctx, id, r); err != nil {
+		t.Fatal(err)
+	}
+	appID, err := s.SaveImport(ctx, uid, id, ImportEdit{Company: r.Company, Title: r.Title, Location: r.Location,
+		Season: r.Season, JobType: listing.Internship}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return appID
+}
+
+func TestImports_AttachToPublicOrCreatePrivate(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	uid := newUser(t, s, "a@b.co")
+	saveFrom(t, s, "simplify", simplifyFigma) // public, greenhouse:6241542004
+	public := scalar[int64](t, s, `SELECT id FROM listings`)
+
+	// A link to a job we already list: the application attaches to it.
+	app := saveImport(t, s, uid, "https://boards.greenhouse.io/figma/jobs/6241542004",
+		jobimport.Result{Step: jobimport.StepMatch, ListingID: public, Company: "Figma", Title: "Software Engineer Intern"})
+	if a, _, _ := s.Application(ctx, uid, app); a.ListingID != public {
+		t.Errorf("attached to %d, want the public listing %d", a.ListingID, public)
+	}
+
+	// A job we don't list: a private listing only this user sees.
+	app2 := saveImport(t, s, uid, "https://jobs.lever.co/acme/3fba1c39-c5cb-47d7-9ad2-1cec4d7e9d0c",
+		jobimport.Result{Step: jobimport.StepAPI, Company: "Acme", Title: "Robotics Intern", Location: "Boston, MA"})
+	a2, _, _ := s.Application(ctx, uid, app2)
+	if owner := scalar[*int64](t, s, `SELECT owner_user_id FROM listings WHERE id = $1`, a2.ListingID); owner == nil || *owner != uid {
+		t.Fatalf("private listing owner = %v, want %d", owner, uid)
+	}
+
+	// Private listings never leak: not in the feed (even the owner's), counts,
+	// link checks, notifications, or the duplicates report.
+	if n, _ := s.CountFeed(ctx, FeedQuery{JobType: listing.Internship, UserID: uid, ShowApplied: true}); n != 1 {
+		t.Errorf("feed count %d, want 1 (only the public one)", n)
+	}
+	due, _ := s.DueLinks(ctx, 100)
+	for _, d := range due {
+		if strings.Contains(d.URL, "lever.co/acme") {
+			t.Error("a private listing's link is in the link-check queue")
+		}
+	}
+	other := newUser(t, s, "x@b.co")
+	acme := scalar[int64](t, s, `SELECT id FROM companies WHERE normalized_name = 'acme'`)
+	s.Star(ctx, other, acme)
+	exec(t, s, `UPDATE starred_companies SET starred_at = now() - interval '1 hour'`)
+	if n, _ := s.CreateNotifications(ctx); n != 0 {
+		t.Errorf("someone's private listing notified another user (%d)", n)
+	}
+	vis, _ := s.VisibleListings(ctx)
+	for _, v := range vis {
+		if v.ID == a2.ListingID {
+			t.Error("a private listing is in the duplicates report")
+		}
+	}
+
+	// A source posting with the same job link never attaches to the private listing.
+	src := simplifyFigma
+	src.Company, src.Title, src.SourceListingID = "Acme", "Robotics Intern", "acme1"
+	src.ApplyURL = "https://jobs.lever.co/acme/3fba1c39-c5cb-47d7-9ad2-1cec4d7e9d0c"
+	saveFrom(t, s, "simplify", src)
+	if n := scalar[int](t, s, `SELECT count(*) FROM listing_sources WHERE listing_id = $1`, a2.ListingID); n != 1 {
+		t.Errorf("the private listing has %d postings, want just its own", n)
+	}
+}
+
+// --- Sharing ---
+
+type shareWeb struct{ status int }
+
+func (w shareWeb) Get(_ context.Context, u string) (safefetch.Result, error) {
+	parsed, _ := url.Parse(u)
+	return safefetch.Result{Status: w.status, FinalURL: parsed}, nil
+}
+
+func privateListing(t *testing.T, s *Store, uid int64, link, company string) int64 {
+	t.Helper()
+	app := saveImport(t, s, uid, link, jobimport.Result{Step: jobimport.StepAPI, Company: company, Title: "Robotics Intern", Season: "Summer 2027"})
+	a, _, _ := s.Application(context.Background(), uid, app)
+	return a.ListingID
+}
+
+func TestShare_Gates(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	uid := newUser(t, s, "a@b.co")
+	share := func(listingID int64, status int) (string, string) {
+		t.Helper()
+		o, why, err := (&jobimport.Sharer{Store: s, Fetch: shareWeb{status}}).Share(ctx, uid, listingID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return o, why
+	}
+
+	// Gate 1: a company careers page isn't a known job board link.
+	l1 := privateListing(t, s, uid, "https://careers.acme.com/job/12345", "Acme")
+	if o, why := share(l1, 200); o != jobimport.Private || !strings.Contains(why, "Greenhouse") {
+		t.Errorf("unknown board: %s %q", o, why)
+	}
+	// Gate 5: no verified email yet.
+	l2 := privateListing(t, s, uid, "https://jobs.lever.co/acme/3fba1c39-c5cb-47d7-9ad2-1cec4d7e9d0c", "Acme")
+	if o, why := share(l2, 200); o != jobimport.Private || why != "Verify your email to share." {
+		t.Errorf("unverified: %s %q", o, why)
+	}
+	exec(t, s, `UPDATE users SET email_verified_at = now() WHERE id = $1`, uid)
+	// Gate 2: dead link stays private; can't-tell goes to review; alive goes public.
+	if o, _ := share(l2, 404); o != jobimport.Private {
+		t.Errorf("dead link: %s", o)
+	}
+	if o, why := share(l2, 503); o != jobimport.Review || !strings.Contains(why, "Waiting for review") {
+		t.Errorf("can't tell: %s %q", o, why)
+	}
+	if o, _ := share(l2, 200); o != jobimport.Public {
+		t.Fatalf("all gates pass: %s", o)
+	}
+	if owner := scalar[*int64](t, s, `SELECT owner_user_id FROM listings WHERE id = $1`, l2); owner != nil {
+		t.Error("shared listing is still private")
+	}
+	if n, _ := s.CountFeed(ctx, FeedQuery{JobType: listing.Internship, Search: "robotics"}); n != 1 {
+		t.Errorf("shared listing in feed: %d, want 1", n)
+	}
+}
+
+func TestShare_DuplicateSharesMerge(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	link := "https://jobs.ashbyhq.com/acme/3fba1c39-c5cb-47d7-9ad2-1cec4d7e9d0c"
+	first, second := newUser(t, s, "a@b.co"), newUser(t, s, "b@b.co")
+	exec(t, s, `UPDATE users SET email_verified_at = now()`)
+	l1 := privateListing(t, s, first, link, "Acme")
+	l2 := privateListing(t, s, second, link, "Acme")
+	sharer := &jobimport.Sharer{Store: s, Fetch: shareWeb{200}}
+
+	if o, _, _ := sharer.Share(ctx, first, l1); o != jobimport.Public {
+		t.Fatalf("first share: %s", o)
+	}
+	if o, _, _ := sharer.Share(ctx, second, l2); o != jobimport.Merged {
+		t.Fatalf("second share of the same job: %s, want merged", o)
+	}
+	if n := scalar[int](t, s, `SELECT count(*) FROM listings WHERE owner_user_id IS NULL`); n != 1 {
+		t.Errorf("public listings = %d, want 1", n)
+	}
+	apps, _ := s.Applications(ctx, second)
+	if len(apps) != 1 || apps[0].ListingID != l1 {
+		t.Errorf("second user's application = %+v, want it on the public listing %d", apps, l1)
+	}
+}
+
+func TestShare_DailyLimit(t *testing.T) {
+	s := newTestStore(t)
+	uid := newUser(t, s, "a@b.co")
+	l := privateListing(t, s, uid, "https://careers.acme.com/job/12345", "Acme")
+	for range jobimport.DailyShareLimit {
+		exec(t, s, `INSERT INTO share_requests (user_id, listing_id, outcome) VALUES ($1, $2, 'private')`, uid, l)
+	}
+	o, why, _ := (&jobimport.Sharer{Store: s, Fetch: shareWeb{200}}).Share(context.Background(), uid, l)
+	if o != jobimport.Private || !strings.Contains(why, "a day") {
+		t.Errorf("over the limit: %s %q", o, why)
+	}
+}
+
+func TestImportStats(t *testing.T) {
+	s := newTestStore(t)
+	uid := newUser(t, s, "a@b.co")
+	s.EnqueueImports(context.Background(), uid, []string{"https://a.com/jobs/1", "https://a.com/jobs/2", "https://a.com/jobs/3"})
+	ids := scalar[[]int64](t, s, `SELECT array_agg(id ORDER BY id) FROM job_imports`)
+	s.FinishImport(context.Background(), ids[0], jobimport.Result{Step: jobimport.StepAPI, Company: "A", Title: "T", JobType: listing.Internship})
+	s.FinishImport(context.Background(), ids[1], jobimport.Result{Step: jobimport.StepForm, JobType: listing.Internship})
+	st, err := s.ImportStats(context.Background(), time.Now().Add(-time.Hour))
+	if err != nil || st.API != 1 || st.Form != 1 || st.Pending != 1 {
+		t.Errorf("stats = %+v, %v", st, err)
 	}
 }

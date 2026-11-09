@@ -1,0 +1,53 @@
+{{template "head" "Add jobs you applied to"}}
+{{if .Pending}}<meta http-equiv="refresh" content="3">{{end}}
+{{template "header" .}}
+<main>
+  <p class="sub"><a href="/applications">← My applications</a></p>
+  <h1>Add jobs you applied to</h1>
+  <p class="sub">Paste links to jobs you applied to elsewhere, one per line. We look each one up in the background; you check the details before anything is saved. Up to {{.Limit}} a day.</p>
+
+  {{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
+
+  <form method="post" action="/applications/add" class="panel paste">
+    <label for="links"><strong>Job links</strong></label>
+    <textarea id="links" name="links" rows="4" placeholder="https://job-boards.greenhouse.io/company/jobs/1234567&#10;https://jobs.lever.co/company/…" required></textarea>
+    <button class="btn" type="submit">Look them up</button>
+  </form>
+
+  {{range .Items}}
+  <section class="panel import">
+    <p class="link"><a href="{{.URL}}" target="_blank" rel="noopener noreferrer">{{.URL}}</a></p>
+    {{if or (eq .Status "queued") (eq .Status "running")}}
+      <p class="help">Looking this up…{{if .Error}} (retrying: the site didn't answer){{end}}</p>
+    {{else if eq .Status "failed"}}
+      <p class="error">We can't use this link: {{.Error}}</p>
+      <form method="post" action="/imports/{{.ID}}/dismiss"><button class="linkbtn" type="submit">Remove</button></form>
+    {{else}}
+      <p><span class="chip {{if eq .Step "form"}}warn{{else}}today{{end}}">{{.StepLabel}}</span></p>
+      <form method="post" action="/imports/{{.ID}}" class="details">
+        <label>Company <input name="company" value="{{.Company}}" required></label>
+        <label>Title <input name="title" value="{{.Title}}" required></label>
+        <label>Location <input name="location" value="{{.Location}}"></label>
+        <label>Season
+          <select name="season"><option value="">Not sure</option>{{$s := .Season}}{{range $.Seasons}}<option{{if eq . $s}} selected{{end}}>{{.}}</option>{{end}}</select>
+        </label>
+        <label>Type
+          <select name="job_type"><option value="internship"{{if eq .JobType "internship"}} selected{{end}}>Internship</option><option value="new_grad"{{if eq .JobType "new_grad"}} selected{{end}}>New grad</option></select>
+        </label>
+        <label>Applied on <input type="date" name="applied_on" value="{{$.Today}}"></label>
+        <div class="actions"><button class="btn" type="submit">Save as applied</button></div>
+      </form>
+      <form method="post" action="/imports/{{.ID}}/dismiss" style="margin-top:8px"><button class="linkbtn" type="submit">Remove</button></form>
+    {{end}}
+  </section>
+  {{end}}
+</main>
+<style>
+  .paste textarea { width: 100%; min-height: 110px; padding: 10px 14px; font: inherit; color: var(--text);
+                    background: var(--bg); border: 1.5px solid var(--line); border-radius: 12px; margin: 8px 0 12px; }
+  .import .link { margin: 0 0 8px; word-break: break-all; font-size: 14px; }
+  .import .details label { display: grid; gap: 4px; font-weight: 700; }
+  .import .details { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); max-width: none; gap: 12px; }
+  .import .actions { align-self: end; }
+</style>
+{{template "foot"}}

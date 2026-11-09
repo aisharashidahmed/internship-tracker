@@ -2,7 +2,7 @@
 {{template "header" .}}
 <main>
   <h1>My applications</h1>
-  <p class="sub">{{.Total}} tracked. Furthest along first.</p>
+  <p class="sub">{{.Total}} tracked. Furthest along first. <a href="/applications/add">Add jobs you applied to elsewhere →</a></p>
 
   {{range .Groups}}
   <section class="group">

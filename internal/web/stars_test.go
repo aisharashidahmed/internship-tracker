@@ -100,7 +100,7 @@ func (f *fakeStars) MarkAllNotificationsRead(_ context.Context, u int64) error {
 
 func TestStarsAndBell(t *testing.T) {
 	accounts, tracker, stars := newFakeAccounts(), newFakeTracker(), newFakeStars()
-	s, err := New(fakeFeed{listings: listings(1)}, accounts, tracker, stars, Options{})
+	s, err := New(fakeFeed{listings: listings(1)}, accounts, tracker, stars, newFakeImports(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

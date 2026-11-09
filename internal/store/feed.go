@@ -107,6 +107,7 @@ const feedFilter = `
 	-- the viewer's own application, if any ($6 is NULL when logged out)
 	LEFT JOIN applications ua ON ua.listing_id = l.id AND ua.user_id = $6
 	WHERE l.status IN ('open', 'stale') AND l.job_type = $1
+	  AND l.owner_user_id IS NULL  -- private (user-added) listings never appear in the feed
 	  -- the feed is "what to apply to next": applied ones only on request
 	  AND ($7 OR ua.id IS NULL OR ua.stage = 'saved')
 	  -- roles: none chosen, or "all" and it has every one, or "any" and it has one

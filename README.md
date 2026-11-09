@@ -141,6 +141,33 @@ looked. That moves forward on its own only when you come back after 30+
 minutes away (refreshing or paging keeps your badges), or when you click
 **Mark all as seen**. On your first visit, the last 24 hours count as new.
 
+## Adding jobs you applied to elsewhere
+
+On **My applications → Add jobs you applied to**, paste job links (up to 25 a
+day). Each becomes a background job (a Postgres queue, retried with backoff),
+so the page never waits. Details come from the cheapest, most certain source
+first, and each result records which step produced it:
+
+1. **match**: the link's job ID is already one of our listings (attach to it)
+2. **api**: the job board's public API: Greenhouse, Lever, Ashby
+3. **jsonld**: the page's schema.org `JobPosting` data (Workday and others)
+4. **form**: nothing readable: a form pre-filled from the link
+
+You always confirm or edit before saving. A job we don't list becomes a
+**private** listing only you can see. Pages are fetched by an SSRF-safe client:
+http/https on ports 80/443 only; every resolved address is checked (private,
+loopback, link-local such as 169.254.169.254, and other special ranges are
+refused) and the connection goes to the checked address; same-site redirects
+only; 10 s and 2 MB limits. Page content is untrusted: only specific fields are
+read, then cleaned and length-limited. Results are cached by job identity.
+
+**Sharing** a private listing is opt-in and reviewed automatically: a job link
+on a known board with a job ID, valid fields, not already public (if it is,
+your application merges into it), a verified email (not available yet, so
+shares currently stay private), and the link working right now. Can't tell →
+"waiting for review". Five shares per day. `GET /api/import-stats?days=7`
+reports, in aggregate, how often each step succeeded.
+
 ## Starred companies and notifications
 
 Tap ☆ next to any company on a card to star it (★). After each hourly

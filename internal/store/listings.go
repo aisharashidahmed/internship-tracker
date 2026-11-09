@@ -152,6 +152,7 @@ func (s *Store) findByJobLink(ctx context.Context, l listing.Listing) (id int64,
 		SELECT DISTINCT li.id, li.status, li.degree_level
 		FROM listing_sources ls JOIN listings li ON li.id = ls.listing_id
 		WHERE ls.job_link = ANY($1)
+		  AND li.owner_user_id IS NULL  -- never attach a source posting to someone's private listing
 		  AND li.job_type = $2
 		  AND ($3 = '' OR li.season = $3) -- an unknown season can match any season`,
 		links, l.JobType, l.Season)
@@ -382,7 +383,7 @@ func (s *Store) VisibleListings(ctx context.Context) ([]listing.Candidate, error
 	rows, err := s.db.Query(ctx, `
 		SELECT l.id, c.name, l.title, l.season
 		FROM listings l JOIN companies c ON c.id = l.company_id
-		WHERE l.status IN ('open', 'stale')
+		WHERE l.status IN ('open', 'stale') AND l.owner_user_id IS NULL
 		ORDER BY l.id`)
 	if err != nil {
 		return nil, fmt.Errorf("visible listings: %w", err)

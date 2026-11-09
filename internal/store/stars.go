@@ -40,7 +40,7 @@ type StarredCompany struct {
 func (s *Store) StarredCompanies(ctx context.Context, userID int64) ([]StarredCompany, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT c.id, c.name, sc.starred_at,
-		       (SELECT count(*) FROM listings l WHERE l.company_id = c.id AND l.status = 'open')
+		       (SELECT count(*) FROM listings l WHERE l.company_id = c.id AND l.status = 'open' AND l.owner_user_id IS NULL)
 		FROM starred_companies sc JOIN companies c ON c.id = sc.company_id
 		WHERE sc.user_id = $1
 		ORDER BY lower(c.name)`, userID)
@@ -90,7 +90,7 @@ func (s *Store) CreateNotifications(ctx context.Context) (int64, error) {
 		FROM starred_companies sc
 		JOIN users u ON u.id = sc.user_id
 		JOIN listings l ON l.company_id = sc.company_id
-		WHERE l.status = 'open'
+		WHERE l.status = 'open' AND l.owner_user_id IS NULL
 		  AND l.first_seen_at > sc.starred_at
 		  AND (u.notify_job_type = 'both' OR l.job_type = u.notify_job_type)
 		ON CONFLICT (user_id, listing_id, kind) DO NOTHING`)

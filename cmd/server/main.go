@@ -29,8 +29,11 @@ import (
 	_ "time/tzdata"
 
 	"internship-tracker/internal/db"
+	"internship-tracker/internal/importqueue"
 	"internship-tracker/internal/ingest"
+	"internship-tracker/internal/jobimport"
 	"internship-tracker/internal/linkcheck"
+	"internship-tracker/internal/safefetch"
 	"internship-tracker/internal/source"
 	"internship-tracker/internal/store"
 	"internship-tracker/internal/web"
@@ -91,9 +94,16 @@ func main() {
 		log.Printf("checking apply links now, then every %s", *checkEvery)
 	}
 
+	// "Add jobs I applied to": a background worker looks up pasted links,
+	// fetching other sites only through the SSRF-safe client.
+	fetcher := &safefetch.Client{UserAgent: "internship-tracker/1.0 (+https://github.com/aisharashidahmed/internship-tracker)"}
+	worker := &importqueue.Worker{Queue: st, Extractor: &jobimport.Extractor{Store: st, Fetch: fetcher}}
+	go worker.Run(ctx, 2*time.Second)
+	imports := importsService{Store: st, sharer: &jobimport.Sharer{Store: st, Fetch: fetcher}}
+
 	// COOKIE_SECURE=1 in production (HTTPS); plain http://localhost needs it off.
 	// APP_TIMEZONE: the zone for logged-out visitors (users get their own).
-	s, err := web.New(st, st, st, st, web.Options{
+	s, err := web.New(st, st, st, st, imports, web.Options{
 		SecureCookies:   os.Getenv("COOKIE_SECURE") == "1",
 		TrustProxy:      os.Getenv("TRUST_PROXY") == "1",
 		DefaultTimezone: os.Getenv("APP_TIMEZONE"),
@@ -128,4 +138,15 @@ func main() {
 		log.Fatal(err)
 	}
 	log.Print("stopped")
+}
+
+// importsService is the store plus the share review, which needs to fetch
+// the link (gate 2) and so lives outside the store.
+type importsService struct {
+	*store.Store
+	sharer *jobimport.Sharer
+}
+
+func (i importsService) Share(ctx context.Context, userID, listingID int64) (string, string, error) {
+	return i.sharer.Share(ctx, userID, listingID)
 }

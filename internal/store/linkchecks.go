@@ -40,6 +40,7 @@ func (s *Store) DueLinks(ctx context.Context, limit int) ([]DueLink, error) {
 		WHERE ls.job_link IS NOT NULL
 		  AND ls.active
 		  AND l.status IN ('open', 'stale')
+		  AND l.owner_user_id IS NULL
 		  AND (ls.link_checked_at IS NULL OR ls.link_checked_at < now() - $1::interval)
 		ORDER BY ls.link_checked_at NULLS FIRST, ls.id
 		LIMIT $2`,

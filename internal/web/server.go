@@ -46,6 +46,7 @@ type Server struct {
 	accounts      Accounts
 	tracker       Tracker
 	stars         Stars
+	imports       Imports
 	tmpl          *template.Template
 	secureCookies bool           // set when served over HTTPS behind a proxy
 	trustProxy    bool           // read the visitor's IP from X-Forwarded-For
@@ -71,7 +72,7 @@ type Options struct {
 
 // New parses the templates once, at startup, so a broken template fails
 // immediately instead of on the first request.
-func New(f FeedReader, accounts Accounts, tracker Tracker, stars Stars, opts Options) (*Server, error) {
+func New(f FeedReader, accounts Accounts, tracker Tracker, stars Stars, imports Imports, opts Options) (*Server, error) {
 	tmpl, err := template.New("").Funcs(template.FuncMap{
 		"ago": func(t time.Time) string { return ago(t, time.Now()) },
 		// local shows a time in the viewer's timezone: {{(local .At $.Loc).Format "Jan 2"}}
@@ -94,7 +95,7 @@ func New(f FeedReader, accounts Accounts, tracker Tracker, stars Stars, opts Opt
 	}
 	return &Server{
 		defaultLoc: defaultLoc,
-		feed:       f, accounts: accounts, tracker: tracker, stars: stars, tmpl: tmpl, secureCookies: opts.SecureCookies,
+		feed:       f, accounts: accounts, tracker: tracker, stars: stars, imports: imports, tmpl: tmpl, secureCookies: opts.SecureCookies,
 		trustProxy:    opts.TrustProxy,
 		emailLimiter:  auth.NewLimiter(5, loginWindow),
 		ipLimiter:     auth.NewLimiter(20, loginWindow),
@@ -126,6 +127,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /notifications/{id}", s.openNotification)
 	mux.HandleFunc("POST /notifications/read", s.readAllNotifications)
 	mux.HandleFunc("POST /applications", s.startApplication)
+	mux.HandleFunc("GET /applications/add", s.importsPage)
+	mux.HandleFunc("POST /applications/add", s.addImports)
+	mux.HandleFunc("POST /imports/{id}", s.saveImport)
+	mux.HandleFunc("POST /imports/{id}/dismiss", s.dismissImport)
+	mux.HandleFunc("POST /applications/{id}/share", s.shareApplication)
+	mux.HandleFunc("GET /api/import-stats", s.importStats)
 	mux.HandleFunc("GET /applications", s.applicationsPage)
 	mux.HandleFunc("GET /applications/{id}", s.applicationPage)
 	mux.HandleFunc("POST /applications/{id}", s.updateApplication)

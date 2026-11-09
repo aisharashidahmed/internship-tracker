@@ -8,6 +8,16 @@
 
   {{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
 
+  {{if .App.Private}}
+  <section class="panel">
+    <h2>Only you can see this listing</h2>
+    <p class="help" style="margin-top:0">You added it from a link. Sharing it puts it in everyone's feed, after an automatic check that it's a real, open, single job that isn't listed already.</p>
+    {{if .ShareOutcome}}<p class="{{if eq .ShareOutcome "review"}}help{{else}}error{{end}}">{{.ShareReason}}</p>{{end}}
+    <form method="post" action="/applications/{{.App.ID}}/share"><button class="btn" type="submit">Share publicly</button></form>
+  </section>
+  {{else if eq .ShareOutcome "public"}}<p class="help">You shared this listing: it's in everyone's feed now.</p>
+  {{else if eq .ShareOutcome "merged"}}<p class="help">This job was already public, so your application now points to that listing.</p>{{end}}
+
   <section class="panel">
     <h2>Move to</h2>
     <div class="stage-buttons">

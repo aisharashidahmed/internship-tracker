@@ -73,7 +73,7 @@ func listings(n int) []store.FeedListing {
 
 func get(t *testing.T, f FeedReader, path string) (*http.Response, string) {
 	t.Helper()
-	s, err := New(f, newFakeAccounts(), newFakeTracker(), newFakeStars(), Options{})
+	s, err := New(f, newFakeAccounts(), newFakeTracker(), newFakeStars(), newFakeImports(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
