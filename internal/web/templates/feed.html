@@ -6,7 +6,7 @@
 
   {{if .NewSince}}
   <div class="newbar">
-    <span><strong>{{.NewCount}} new</strong> since {{since .NewSince}}</span>
+    <span><strong>{{.NewCount}} new</strong> since {{since .NewSince .Loc}}</span>
     {{if .NewCount}}<form method="post" action="/seen"><input type="hidden" name="back" value="{{.HereURL}}"><button class="linkbtn" type="submit">Mark all as seen</button></form>{{end}}
   </div>
   {{else if not .User}}
@@ -66,7 +66,7 @@
       {{with index .Links 0}}
       <div class="side">
         <a class="btn" href="{{.URL}}" target="_blank" rel="noopener">Apply</a>
-        {{if .NotSeenSince}}<span class="note">not seen since {{.NotSeenSince.Format "Jan 2"}}</span>{{end}}
+        {{if .NotSeenSince}}<span class="note">not seen since {{(local .NotSeenSince $.Loc).Format "Jan 2"}}</span>{{end}}
       </div>
       {{end}}
     {{else if .Links}}
@@ -76,7 +76,7 @@
       <ul>
         {{range .Links}}
         <li><a href="{{.URL}}" target="_blank" rel="noopener">{{if .Cities}}{{range $i, $c := .Cities}}{{if $i}}; {{end}}{{$c}}{{end}}{{else}}Apply{{end}}</a>
-          <span class="via">via {{range $i, $s := .Sources}}{{if $i}} and {{end}}{{$s}}{{end}}{{if .NotSeenSince}} · not seen since {{.NotSeenSince.Format "Jan 2"}}{{end}}</span></li>
+          <span class="via">via {{range $i, $s := .Sources}}{{if $i}} and {{end}}{{$s}}{{end}}{{if .NotSeenSince}} · not seen since {{(local .NotSeenSince $.Loc).Format "Jan 2"}}{{end}}</span></li>
         {{end}}
       </ul>
     </details>

@@ -132,6 +132,14 @@ leaves its old one; an old listing left with no postings is merged into the
 new one, unless the same person applied to both, in which case both are kept and
 listed as possible duplicates. A merge moves applications to the remaining listing.
 
+## Time zones
+
+Times are stored as absolute moments (`timestamptz`), and every database
+connection works in UTC, whatever the Postgres server is set to. Showing a
+time, and deciding what "today" is (e.g. the default applied date), uses
+**your** timezone: your browser reports it at sign-up and login. Logged-out
+visitors get `APP_TIMEZONE` (default `America/New_York`).
+
 ## Accounts
 
 The feed is public; an account adds personal features. Sign-up is

@@ -129,8 +129,9 @@ func (s *Store) StartApplication(ctx context.Context, userID, listingID int64, s
 // MoveStage changes an application's stage and records it. Any move is
 // allowed; fixing a mistake is just another move. Moving to interview
 // without a round number means the next round (1 if not interviewing yet).
-// Moving past "saved" without an applied date sets it to today.
-func (s *Store) MoveStage(ctx context.Context, userID, appID int64, to Stage, round *int) error {
+// Moving past "saved" without an applied date sets it to today, the
+// user's today (pass the current time in their timezone).
+func (s *Store) MoveStage(ctx context.Context, userID, appID int64, to Stage, round *int, today time.Time) error {
 	if !ValidStage(string(to)) {
 		return fmt.Errorf("move stage: unknown stage %q", to)
 	}
@@ -166,9 +167,8 @@ func (s *Store) MoveStage(ctx context.Context, userID, appID int64, to Stage, ro
 			UPDATE applications SET stage = $3, interview_round = $4, updated_at = now(),
 			       applied_on = CASE WHEN $3 <> 'saved' THEN COALESCE(applied_on, $5::date) ELSE applied_on END
 			WHERE id = $1 AND user_id = $2`,
-			// Today on the app's clock, not Postgres's: the database may run
-			// in another timezone, where it's already tomorrow.
-			appID, userID, to, newRound, time.Now().Format("2006-01-02"))
+			// The user's date, not the database's: it may be tomorrow in UTC.
+			appID, userID, to, newRound, today.Format("2006-01-02"))
 		if err != nil {
 			return fmt.Errorf("move stage: %w", err)
 		}

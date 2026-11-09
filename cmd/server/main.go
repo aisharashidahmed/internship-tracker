@@ -53,7 +53,11 @@ func main() {
 	}
 
 	// COOKIE_SECURE=1 in production (HTTPS); plain http://localhost needs it off.
-	s, err := web.New(st, st, st, web.Options{SecureCookies: os.Getenv("COOKIE_SECURE") == "1"})
+	// APP_TIMEZONE: the zone for logged-out visitors (users get their own).
+	s, err := web.New(st, st, st, web.Options{
+		SecureCookies:   os.Getenv("COOKIE_SECURE") == "1",
+		DefaultTimezone: os.Getenv("APP_TIMEZONE"),
+	})
 	if err != nil {
 		log.Fatal(err)
 	}

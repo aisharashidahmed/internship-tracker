@@ -17,7 +17,8 @@ import (
 // *store.Store satisfies it; tests use an in-memory fake.
 type Accounts interface {
 	InviteUsable(ctx context.Context, token string) (bool, error)
-	SignUp(ctx context.Context, inviteToken, email, passwordHash string) (store.User, error)
+	SignUp(ctx context.Context, inviteToken, email, passwordHash, timezone string) (store.User, error)
+	SetTimezone(ctx context.Context, userID int64, timezone string) error
 	UserByEmail(ctx context.Context, email string) (store.User, bool, error)
 	CreateSession(ctx context.Context, userID int64) (string, time.Time, error)
 	SessionUser(ctx context.Context, token string) (u store.User, found, renewed bool, expires time.Time, err error)
@@ -139,7 +140,11 @@ func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	u, err := s.accounts.SignUp(r.Context(), page.Invite, email, hash)
+	tz := formTimezone(r)
+	if tz == "" {
+		tz = s.defaultLoc.String() // browser didn't say (no JavaScript): use the default
+	}
+	u, err := s.accounts.SignUp(r.Context(), page.Invite, email, hash, tz)
 	switch {
 	case errors.Is(err, store.ErrInviteInvalid):
 		page.InviteOK = false
@@ -192,6 +197,12 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.emailLimiter.Reset(emailKey)
+	// Follow the user's browser if they've moved or are travelling.
+	if tz := formTimezone(r); tz != "" && tz != u.Timezone {
+		if err := s.accounts.SetTimezone(r.Context(), u.ID, tz); err != nil {
+			log.Printf("set timezone: %v", err) // not worth failing the login over
+		}
+	}
 	s.startSession(w, r, u.ID)
 }
 

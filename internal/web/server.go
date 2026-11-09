@@ -45,7 +45,8 @@ type Server struct {
 	accounts      Accounts
 	tracker       Tracker
 	tmpl          *template.Template
-	secureCookies bool // set when served over HTTPS behind a proxy
+	secureCookies bool           // set when served over HTTPS behind a proxy
+	defaultLoc    *time.Location // for logged-out visitors, and users with no timezone
 	emailLimiter  *auth.Limiter
 	ipLimiter     *auth.Limiter
 }
@@ -55,14 +56,19 @@ type Options struct {
 	// SecureCookies marks the session cookie HTTPS-only. Turn it on in
 	// production; plain http://localhost needs it off.
 	SecureCookies bool
+	// DefaultTimezone is an IANA name, e.g. "America/New_York": used for
+	// logged-out visitors. Empty means America/New_York.
+	DefaultTimezone string
 }
 
 // New parses the templates once, at startup, so a broken template fails
 // immediately instead of on the first request.
 func New(f FeedReader, accounts Accounts, tracker Tracker, opts Options) (*Server, error) {
 	tmpl, err := template.New("").Funcs(template.FuncMap{
-		"ago":           func(t time.Time) string { return ago(t, time.Now()) },
-		"since":         func(t time.Time) string { return t.Local().Format("Mon 3:04 PM") },
+		"ago": func(t time.Time) string { return ago(t, time.Now()) },
+		// local shows a time in the viewer's timezone: {{(local .At $.Loc).Format "Jan 2"}}
+		"local":         func(t time.Time, loc *time.Location) time.Time { return t.In(loc) },
+		"since":         func(t time.Time, loc *time.Location) string { return t.In(loc).Format("Mon 3:04 PM") },
 		"deref":         func(p any) any { return derefValue(p) },
 		"roleLabel":     listing.RoleLabel,
 		"industryLabel": func(s string) string { return listing.IndustryLabels[listing.Industry(s)] },
@@ -70,8 +76,17 @@ func New(f FeedReader, accounts Accounts, tracker Tracker, opts Options) (*Serve
 	if err != nil {
 		return nil, fmt.Errorf("parse templates: %w", err)
 	}
+	tzName := opts.DefaultTimezone
+	if tzName == "" {
+		tzName = "America/New_York"
+	}
+	defaultLoc, ok := loadLocation(tzName)
+	if !ok {
+		return nil, fmt.Errorf("unknown default timezone %q", tzName)
+	}
 	return &Server{
-		feed: f, accounts: accounts, tracker: tracker, tmpl: tmpl, secureCookies: opts.SecureCookies,
+		defaultLoc: defaultLoc,
+		feed:       f, accounts: accounts, tracker: tracker, tmpl: tmpl, secureCookies: opts.SecureCookies,
 		emailLimiter: auth.NewLimiter(5, loginWindow),
 		ipLimiter:    auth.NewLimiter(20, loginWindow),
 	}, nil
@@ -163,13 +178,14 @@ func (f Filters) query(page int) string {
 
 // Page is one page of the feed; it is also the JSON response body.
 type Page struct {
-	User     *store.User `json:"-"`                   // for the header only
-	NewSince *time.Time  `json:"new_since,omitempty"` // logged in only
-	NewCount int         `json:"new_count"`           // listings new since then, under these filters
-	Filters  Filters     `json:"filters"`
-	Page     int         `json:"page"`
-	NextPage int         `json:"next_page,omitempty"` // 0 (omitted) on the last page
-	Cards    []feed.Card `json:"listings"`
+	User     *store.User    `json:"-"`                   // for the header only
+	Loc      *time.Location `json:"-"`                   // the viewer's timezone, for showing times
+	NewSince *time.Time     `json:"new_since,omitempty"` // logged in only
+	NewCount int            `json:"new_count"`           // listings new since then, under these filters
+	Filters  Filters        `json:"filters"`
+	Page     int            `json:"page"`
+	NextPage int            `json:"next_page,omitempty"` // 0 (omitted) on the last page
+	Cards    []feed.Card    `json:"listings"`
 }
 
 // Option is one choice in the filter bar.
@@ -227,7 +243,7 @@ func (s *Server) loadPage(r *http.Request, countsAsVisit bool) (Page, error) {
 	if err != nil || n < 1 {
 		n = 1
 	}
-	p := Page{User: currentUser(r), Filters: parseFilters(r.URL.Query()), Page: n, Cards: []feed.Card{}}
+	p := Page{User: currentUser(r), Loc: s.location(r), Filters: parseFilters(r.URL.Query()), Page: n, Cards: []feed.Card{}}
 
 	if p.User != nil {
 		var since time.Time

@@ -650,21 +650,21 @@ func TestSignUp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := s.SignUp(ctx, token, "aisha@college.edu", "hash"); err != nil {
+	if _, err := s.SignUp(ctx, token, "aisha@college.edu", "hash", "America/New_York"); err != nil {
 		t.Fatalf("first sign-up: %v", err)
 	}
 	// Same email, different case: refused, and the seat is not used up.
-	if _, err := s.SignUp(ctx, token, "AISHA@college.edu", "hash"); !errors.Is(err, ErrEmailTaken) {
+	if _, err := s.SignUp(ctx, token, "AISHA@college.edu", "hash", "America/New_York"); !errors.Is(err, ErrEmailTaken) {
 		t.Errorf("duplicate email err = %v, want ErrEmailTaken", err)
 	}
-	if _, err := s.SignUp(ctx, token, "friend@college.edu", "hash"); err != nil {
+	if _, err := s.SignUp(ctx, token, "friend@college.edu", "hash", "America/New_York"); err != nil {
 		t.Errorf("second seat: %v", err)
 	}
 	// Both seats used.
-	if _, err := s.SignUp(ctx, token, "third@college.edu", "hash"); !errors.Is(err, ErrInviteInvalid) {
+	if _, err := s.SignUp(ctx, token, "third@college.edu", "hash", "America/New_York"); !errors.Is(err, ErrInviteInvalid) {
 		t.Errorf("third sign-up err = %v, want ErrInviteInvalid", err)
 	}
-	if _, err := s.SignUp(ctx, "made-up-token", "x@college.edu", "hash"); !errors.Is(err, ErrInviteInvalid) {
+	if _, err := s.SignUp(ctx, "made-up-token", "x@college.edu", "hash", "America/New_York"); !errors.Is(err, ErrInviteInvalid) {
 		t.Errorf("unknown invite err = %v, want ErrInviteInvalid", err)
 	}
 
@@ -677,7 +677,7 @@ func TestSignUp(t *testing.T) {
 func TestSignUp_ExpiredInvite(t *testing.T) {
 	s := newTestStore(t)
 	token, _ := s.CreateInvite(context.Background(), "", 1, -time.Minute) // already expired
-	if _, err := s.SignUp(context.Background(), token, "a@b.co", "h"); !errors.Is(err, ErrInviteInvalid) {
+	if _, err := s.SignUp(context.Background(), token, "a@b.co", "h", "America/New_York"); !errors.Is(err, ErrInviteInvalid) {
 		t.Errorf("err = %v, want ErrInviteInvalid", err)
 	}
 }
@@ -980,10 +980,10 @@ func TestApplication_DoubleClickAndHistory(t *testing.T) {
 	}
 
 	two := 2
-	s.MoveStage(ctx, uid, id, StageInterview, nil)  // round 1
-	s.MoveStage(ctx, uid, id, StageInterview, nil)  // next round: 2
-	s.MoveStage(ctx, uid, id, StageInterview, &two) // same round again: not a move
-	s.MoveStage(ctx, uid, id, StageRejected, nil)
+	s.MoveStage(ctx, uid, id, StageInterview, nil, time.Now())  // round 1
+	s.MoveStage(ctx, uid, id, StageInterview, nil, time.Now())  // next round: 2
+	s.MoveStage(ctx, uid, id, StageInterview, &two, time.Now()) // same round again: not a move
+	s.MoveStage(ctx, uid, id, StageRejected, nil, time.Now())
 
 	app, events, err := s.Application(ctx, uid, id)
 	if err != nil {
@@ -1014,7 +1014,7 @@ func TestApplication_OtherUsersCantTouchIt(t *testing.T) {
 	if _, _, err := s.Application(ctx, stranger, id); !errors.Is(err, ErrNotFound) {
 		t.Errorf("read: err = %v, want ErrNotFound", err)
 	}
-	if err := s.MoveStage(ctx, stranger, id, StageOffer, nil); !errors.Is(err, ErrNotFound) {
+	if err := s.MoveStage(ctx, stranger, id, StageOffer, nil, time.Now()); !errors.Is(err, ErrNotFound) {
 		t.Errorf("move: err = %v, want ErrNotFound", err)
 	}
 	if err := s.DeleteApplication(ctx, stranger, id); !errors.Is(err, ErrNotFound) {
@@ -1027,7 +1027,7 @@ func TestApplication_SavedThenApplied(t *testing.T) {
 	ctx := context.Background()
 	uid, lid := newUser(t, s, "a@b.co"), aListing(t, s)
 	id, _, _ := s.StartApplication(ctx, uid, lid, StageSaved, time.Now())
-	if err := s.MoveStage(ctx, uid, id, StageApplied, nil); err != nil {
+	if err := s.MoveStage(ctx, uid, id, StageApplied, nil, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	app, _, _ := s.Application(ctx, uid, id)
@@ -1170,9 +1170,51 @@ func TestApplication_AppliedOnASavedCard(t *testing.T) {
 	}
 
 	// A late double-click must not move an interview back to applied.
-	s.MoveStage(ctx, uid, id, StageInterview, nil)
+	s.MoveStage(ctx, uid, id, StageInterview, nil, time.Now())
 	s.StartApplication(ctx, uid, lid, StageApplied, time.Now())
 	if app, _, _ := s.Application(ctx, uid, id); app.Stage != StageInterview {
 		t.Errorf("stage %s; a repeated click moved it backwards", app.Stage)
+	}
+}
+
+func TestTimezone_StoredAndUpdated(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	token, _ := s.CreateInvite(ctx, "", 1, time.Hour)
+	u, err := s.SignUp(ctx, token, "a@b.co", "h", "America/Los_Angeles")
+	if err != nil || u.Timezone != "America/Los_Angeles" {
+		t.Fatalf("SignUp = %+v, %v", u, err)
+	}
+	if err := s.SetTimezone(ctx, u.ID, "Asia/Tokyo"); err != nil {
+		t.Fatal(err)
+	}
+	session, _, _ := s.CreateSession(ctx, u.ID)
+	if got, _, _, _, _ := s.SessionUser(ctx, session); got.Timezone != "Asia/Tokyo" {
+		t.Errorf("session user timezone = %q, want Asia/Tokyo", got.Timezone)
+	}
+}
+
+func TestDB_ConnectionsUseUTC(t *testing.T) {
+	s := newTestStore(t)
+	if tz := scalar[string](t, s, `SELECT current_setting('TimeZone')`); tz != "UTC" {
+		t.Errorf("connection timezone = %q, want UTC whatever the server's setting", tz)
+	}
+}
+
+func TestMoveStage_AppliedDateIsTheUsersToday(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	uid, lid := newUser(t, s, "a@b.co"), aListing(t, s)
+	id, _, _ := s.StartApplication(ctx, uid, lid, StageSaved, time.Now())
+
+	// 11pm on Nov 8 in New York is already Nov 9 in UTC (and in Nairobi).
+	ny, _ := time.LoadLocation("America/New_York")
+	lateEvening := time.Date(2026, 11, 8, 23, 0, 0, 0, ny)
+	if err := s.MoveStage(ctx, uid, id, StageApplied, nil, lateEvening); err != nil {
+		t.Fatal(err)
+	}
+	app, _, _ := s.Application(ctx, uid, id)
+	if got := app.AppliedOn.Format("2006-01-02"); got != "2026-11-08" {
+		t.Errorf("applied on %s, want 2026-11-08 (the user's date)", got)
 	}
 }

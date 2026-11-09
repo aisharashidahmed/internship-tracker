@@ -17,7 +17,7 @@ import (
 // Every method takes the user id: a user only ever sees their own.
 type Tracker interface {
 	StartApplication(ctx context.Context, userID, listingID int64, stage store.Stage, appliedOn time.Time) (int64, bool, error)
-	MoveStage(ctx context.Context, userID, appID int64, to store.Stage, round *int) error
+	MoveStage(ctx context.Context, userID, appID int64, to store.Stage, round *int, today time.Time) error
 	UpdateDetails(ctx context.Context, userID, appID int64, d store.Details) error
 	DeleteApplication(ctx context.Context, userID, appID int64) error
 	Applications(ctx context.Context, userID int64) ([]store.Application, error)
@@ -63,7 +63,8 @@ func (s *Server) startApplication(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad request.", http.StatusBadRequest)
 		return
 	}
-	id, _, err := s.tracker.StartApplication(r.Context(), u.ID, listingID, stage, time.Now())
+	// "Applied today" means today where the user is.
+	id, _, err := s.tracker.StartApplication(r.Context(), u.ID, listingID, stage, time.Now().In(s.location(r)))
 	if err != nil {
 		serverError(w, err)
 		return
@@ -90,6 +91,7 @@ type AppRow struct {
 // ApplicationsPage is the data for My applications.
 type ApplicationsPage struct {
 	User   *store.User
+	Loc    *time.Location
 	Total  int
 	Groups []StageGroup
 }
@@ -104,7 +106,7 @@ func (s *Server) applicationsPage(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	page := ApplicationsPage{User: u, Total: len(apps)}
+	page := ApplicationsPage{User: u, Loc: s.location(r), Total: len(apps)}
 	for _, stage := range store.Stages {
 		g := StageGroup{Label: store.StageLabels[stage]}
 		for _, a := range apps {
@@ -122,6 +124,7 @@ func (s *Server) applicationsPage(w http.ResponseWriter, r *http.Request) {
 // ApplicationPage is the data for one application.
 type ApplicationPage struct {
 	User       *store.User
+	Loc        *time.Location
 	App        store.Application
 	StageLabel string
 	Events     []EventRow
@@ -171,7 +174,7 @@ func (s *Server) showApplication(w http.ResponseWriter, r *http.Request, status 
 		return
 	}
 
-	page := ApplicationPage{User: u, App: app, StageLabel: feed.StageLabel(app.Stage, app.InterviewRound),
+	page := ApplicationPage{User: u, Loc: s.location(r), App: app, StageLabel: feed.StageLabel(app.Stage, app.InterviewRound),
 		Resumes: resumes, Error: errMsg}
 	for _, e := range events {
 		label := feed.StageLabel(e.To, e.InterviewRound)
@@ -199,7 +202,7 @@ func (s *Server) moveStage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad request.", http.StatusBadRequest)
 		return
 	}
-	err := s.tracker.MoveStage(r.Context(), u.ID, id, store.Stage(stage), nil)
+	err := s.tracker.MoveStage(r.Context(), u.ID, id, store.Stage(stage), nil, time.Now().In(s.location(r)))
 	if errors.Is(err, store.ErrNotFound) {
 		http.NotFound(w, r)
 		return
@@ -227,8 +230,8 @@ func (s *Server) updateApplication(w http.ResponseWriter, r *http.Request) {
 
 	if v := r.PostFormValue("applied_on"); v != "" {
 		// A date typed in a form is a day on the user's calendar, so read it
-		// in local time: in UTC, "tomorrow" may already have begun tonight.
-		t, err := time.ParseInLocation("2006-01-02", v, time.Local)
+		// in their timezone: in UTC, "tomorrow" may already have begun tonight.
+		t, err := time.ParseInLocation("2006-01-02", v, s.location(r))
 		if err != nil || t.After(time.Now()) {
 			s.showApplication(w, r, http.StatusUnprocessableEntity, "The applied date must be a real date, not in the future.")
 			return

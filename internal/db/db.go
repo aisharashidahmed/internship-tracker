@@ -31,7 +31,17 @@ func URLFromEnv() string {
 
 // Connect opens a connection pool and checks that the database answers.
 func Connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
-	pool, err := pgxpool.New(ctx, url)
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		return nil, fmt.Errorf("open database: %w", err)
+	}
+	// Every connection works in UTC, whatever the Postgres server's own
+	// timezone setting is (this one's was Africa/Nairobi). Stored times are
+	// absolute either way; this keeps anything Postgres formats or computes
+	// from depending on where the database happens to run. Showing times to
+	// a person uses that person's timezone (users.timezone).
+	cfg.ConnConfig.RuntimeParams["timezone"] = "UTC"
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}

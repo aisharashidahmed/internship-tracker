@@ -51,7 +51,7 @@ func (f *fakeTracker) get(uid, id int64) (*store.Application, error) {
 	return a, nil
 }
 
-func (f *fakeTracker) MoveStage(_ context.Context, uid, id int64, to store.Stage, _ *int) error {
+func (f *fakeTracker) MoveStage(_ context.Context, uid, id int64, to store.Stage, _ *int, _ time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	a, err := f.get(uid, id)
@@ -203,5 +203,35 @@ func TestTracker_LoggedOutIsSentToLogin(t *testing.T) {
 	}
 	if _, page := b.get("/"); strings.Contains(page, "I applied") {
 		t.Error("logged-out cards should have no tracker buttons")
+	}
+}
+
+func TestTimezone_FromBrowserAndShownInIt(t *testing.T) {
+	accounts, tracker := newFakeAccounts(), newFakeTracker()
+	s, err := New(fakeFeed{listings: listings(1)}, accounts, tracker, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := newBrowserFor(t, s)
+	accounts.invites["inv"] = 2
+	b.post("/signup", url.Values{"invite": {"inv"}, "email": {"tokyo@college.edu"}, "password": {"correct horse battery"},
+		"tz": {"Asia/Tokyo"}})
+	if u, _, _ := accounts.UserByEmail(context.Background(), "tokyo@college.edu"); u.Timezone != "Asia/Tokyo" {
+		t.Fatalf("saved timezone %q, want the browser's Asia/Tokyo", u.Timezone)
+	}
+
+	// A history entry at 15:00 UTC is midnight the next day in Tokyo.
+	b.post("/applications", url.Values{"listing_id": {"1"}, "stage": {"saved"}})
+	tracker.events[1][0].At = time.Date(2026, 11, 8, 15, 0, 0, 0, time.UTC)
+	if _, page := b.get("/applications/1"); !strings.Contains(page, "Nov 9, 12:00 AM") {
+		t.Error("history time not shown in the user's timezone")
+	}
+
+	// A junk timezone falls back to the default, not to the server's zone.
+	other := newBrowserFor(t, s)
+	other.post("/signup", url.Values{"invite": {"inv"}, "email": {"x@college.edu"}, "password": {"correct horse battery"},
+		"tz": {"Local"}})
+	if u, _, _ := accounts.UserByEmail(context.Background(), "x@college.edu"); u.Timezone != "America/New_York" {
+		t.Errorf("timezone %q, want the default America/New_York", u.Timezone)
 	}
 }

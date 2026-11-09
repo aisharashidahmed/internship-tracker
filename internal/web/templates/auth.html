@@ -11,6 +11,7 @@
     {{else}}
     <form method="post" action="/{{.Mode}}">
       {{if eq .Mode "signup"}}<input type="hidden" name="invite" value="{{.Invite}}">{{end}}
+      <input type="hidden" name="tz" id="tz">
       <label for="email">Email</label>
       <input id="email" type="email" name="email" value="{{.Email}}" autocomplete="email" required autofocus>
       <label for="password">Password</label>
@@ -23,4 +24,10 @@
     {{end}}
   </div>
 </main>
+<script>
+  // Tell the server this browser's timezone (e.g. "America/New_York"), so
+  // dates and "today" are yours. Without JavaScript the server's default is used.
+  const tz = document.getElementById("tz");
+  if (tz) tz.value = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+</script>
 {{template "foot"}}

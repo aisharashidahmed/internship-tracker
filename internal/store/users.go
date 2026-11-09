@@ -17,6 +17,7 @@ import (
 type User struct {
 	ID           int64
 	Email        string
+	Timezone     string // IANA name, e.g. "America/New_York"
 	PasswordHash string
 }
 
@@ -56,7 +57,7 @@ func (s *Store) InviteUsable(ctx context.Context, token string) (bool, error) {
 
 // SignUp creates an account using an invite, all in one transaction: if
 // the email is taken, the invite isn't used up.
-func (s *Store) SignUp(ctx context.Context, inviteToken, email, passwordHash string) (User, error) {
+func (s *Store) SignUp(ctx context.Context, inviteToken, email, passwordHash, timezone string) (User, error) {
 	var u User
 	err := s.InTx(ctx, func(tx *Store) error {
 		// FOR UPDATE locks the invite row, so two people using the last
@@ -75,8 +76,8 @@ func (s *Store) SignUp(ctx context.Context, inviteToken, email, passwordHash str
 		}
 
 		err = tx.db.QueryRow(ctx,
-			`INSERT INTO users (email, password_hash, invite_id) VALUES ($1, $2, $3) RETURNING id, email`,
-			email, passwordHash, inviteID).Scan(&u.ID, &u.Email)
+			`INSERT INTO users (email, password_hash, invite_id, timezone) VALUES ($1, $2, $3, $4) RETURNING id, email, timezone`,
+			email, passwordHash, inviteID, timezone).Scan(&u.ID, &u.Email, &u.Timezone)
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" { // unique_violation on lower(email)
 			return ErrEmailTaken
@@ -95,8 +96,8 @@ func (s *Store) SignUp(ctx context.Context, inviteToken, email, passwordHash str
 // found is false if there is none.
 func (s *Store) UserByEmail(ctx context.Context, email string) (u User, found bool, err error) {
 	err = s.db.QueryRow(ctx,
-		`SELECT id, email, password_hash FROM users WHERE lower(email) = lower($1)`, email,
-	).Scan(&u.ID, &u.Email, &u.PasswordHash)
+		`SELECT id, email, timezone, password_hash FROM users WHERE lower(email) = lower($1)`, email,
+	).Scan(&u.ID, &u.Email, &u.Timezone, &u.PasswordHash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, false, nil
 	}
@@ -130,10 +131,10 @@ func (s *Store) SessionUser(ctx context.Context, token string) (u User, found, r
 	hash := auth.HashToken(token)
 	var lastUsed time.Time
 	err = s.db.QueryRow(ctx, `
-		SELECT u.id, u.email, s.last_used_at, s.expires_at
+		SELECT u.id, u.email, u.timezone, s.last_used_at, s.expires_at
 		FROM sessions s JOIN users u ON u.id = s.user_id
 		WHERE s.token_hash = $1 AND s.expires_at > now()`, hash,
-	).Scan(&u.ID, &u.Email, &lastUsed, &expires)
+	).Scan(&u.ID, &u.Email, &u.Timezone, &lastUsed, &expires)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, false, false, time.Time{}, nil
 	}
@@ -151,6 +152,13 @@ func (s *Store) SessionUser(ctx context.Context, token string) (u User, found, r
 		renewed = true
 	}
 	return u, true, renewed, expires, nil
+}
+
+// SetTimezone records the timezone a user's browser reported at login,
+// so times follow them if they travel or move.
+func (s *Store) SetTimezone(ctx context.Context, userID int64, timezone string) error {
+	_, err := s.db.Exec(ctx, `UPDATE users SET timezone = $2 WHERE id = $1 AND timezone <> $2`, userID, timezone)
+	return err
 }
 
 // DeleteSession logs a cookie token out. Unknown tokens are ignored.

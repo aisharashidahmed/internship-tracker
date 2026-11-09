@@ -37,7 +37,7 @@ func (f *fakeAccounts) InviteUsable(_ context.Context, t string) (bool, error) {
 	return f.invites[t] > 0, nil
 }
 
-func (f *fakeAccounts) SignUp(_ context.Context, invite, email, hash string) (store.User, error) {
+func (f *fakeAccounts) SignUp(_ context.Context, invite, email, hash, tz string) (store.User, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.invites[invite] <= 0 {
@@ -48,7 +48,7 @@ func (f *fakeAccounts) SignUp(_ context.Context, invite, email, hash string) (st
 	}
 	f.invites[invite]--
 	f.nextID++
-	u := store.User{ID: f.nextID, Email: email, PasswordHash: hash}
+	u := store.User{ID: f.nextID, Email: email, PasswordHash: hash, Timezone: tz}
 	f.users[strings.ToLower(email)] = u
 	return u, nil
 }
@@ -77,10 +77,22 @@ func (f *fakeAccounts) SessionUser(_ context.Context, token string) (store.User,
 	}
 	for _, u := range f.users {
 		if u.ID == id {
-			return store.User{ID: u.ID, Email: u.Email}, true, false, time.Now().Add(time.Hour), nil
+			return store.User{ID: u.ID, Email: u.Email, Timezone: u.Timezone}, true, false, time.Now().Add(time.Hour), nil
 		}
 	}
 	return store.User{}, false, false, time.Time{}, nil
+}
+
+func (f *fakeAccounts) SetTimezone(_ context.Context, id int64, tz string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for k, u := range f.users {
+		if u.ID == id {
+			u.Timezone = tz
+			f.users[k] = u
+		}
+	}
+	return nil
 }
 
 func (f *fakeAccounts) DeleteSession(_ context.Context, token string) error {

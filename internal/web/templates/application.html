@@ -47,7 +47,7 @@
   <section class="panel">
     <h2>History</h2>
     <ol class="history">
-      {{range .Events}}<li><span>{{.Label}}</span> <span class="when">{{.At.Local.Format "Jan 2, 3:04 PM"}}</span></li>{{end}}
+      {{range .Events}}<li><span>{{.Label}}</span> <span class="when">{{(local .At $.Loc).Format "Jan 2, 3:04 PM"}}</span></li>{{end}}
     </ol>
   </section>
 
