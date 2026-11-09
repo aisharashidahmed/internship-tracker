@@ -73,8 +73,15 @@ func Summary(r Result) string {
 		return fmt.Sprintf("%s: unchanged (HTTP 304) in %s", rep.Source, took)
 	default:
 		c := rep.Counts
-		return fmt.Sprintf("%s: %d postings, %d new, %d updated, %d unchanged, %d stale, %d closed in %s",
+		line := fmt.Sprintf("%s: %d postings, %d new, %d updated, %d unchanged, %d stale, %d closed in %s",
 			rep.Source, rep.Postings, c[store.OutcomeNew], c[store.OutcomeUpdated], c[store.OutcomeUnchanged],
 			c[store.OutcomeStale], c[store.OutcomeClosed], took)
+		if rep.RulesChanged {
+			line += " (rules changed: re-saved)"
+		}
+		if m := rep.Merges; m.Moved > 0 {
+			line += fmt.Sprintf("; %d postings moved, %d listings merged, %d kept apart", m.Moved, m.Merged, m.KeptApart)
+		}
+		return line
 	}
 }

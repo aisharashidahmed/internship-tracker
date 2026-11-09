@@ -19,14 +19,16 @@ import (
 // (whose own tests run against Postgres).
 type fakeAccounts struct {
 	mu       sync.Mutex
-	invites  map[string]int // token -> seats left
+	newSince map[int64]time.Time // user id -> boundary; set by ViewFeed
+	invites  map[string]int      // token -> seats left
 	users    map[string]store.User
 	sessions map[string]int64 // token -> user id
 	nextID   int64
 }
 
 func newFakeAccounts() *fakeAccounts {
-	return &fakeAccounts{invites: map[string]int{"good-invite": 1}, users: map[string]store.User{}, sessions: map[string]int64{}}
+	return &fakeAccounts{invites: map[string]int{"good-invite": 1}, users: map[string]store.User{},
+		sessions: map[string]int64{}, newSince: map[int64]time.Time{}}
 }
 
 func (f *fakeAccounts) InviteUsable(_ context.Context, t string) (bool, error) {
@@ -88,6 +90,29 @@ func (f *fakeAccounts) DeleteSession(_ context.Context, token string) error {
 	return nil
 }
 
+func (f *fakeAccounts) ViewFeed(_ context.Context, id int64) (time.Time, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.newSince[id]; !ok {
+		f.newSince[id] = time.Now().Add(-store.FirstVisitWindow)
+	}
+	return f.newSince[id], nil
+}
+
+func (f *fakeAccounts) FeedNewSince(_ context.Context, id int64) (time.Time, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	t, ok := f.newSince[id]
+	return t, ok, nil
+}
+
+func (f *fakeAccounts) MarkAllSeen(_ context.Context, id int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.newSince[id] = time.Now()
+	return nil
+}
+
 // browser is a test client that keeps cookies and doesn't follow
 // redirects, like a person's browser but easier to inspect.
 type browser struct {
@@ -97,8 +122,12 @@ type browser struct {
 }
 
 func newBrowser(t *testing.T, accounts Accounts) *browser {
+	return newBrowserWithFeed(t, fakeFeed{}, accounts)
+}
+
+func newBrowserWithFeed(t *testing.T, f FeedReader, accounts Accounts) *browser {
 	t.Helper()
-	s, err := New(fakeFeed{}, accounts, Options{})
+	s, err := New(f, accounts, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,5 +247,59 @@ func TestCrossSiteFormPostIsRejected(t *testing.T) {
 	}
 	if res.StatusCode != http.StatusForbidden {
 		t.Errorf("cross-site post status %d, want 403", res.StatusCode)
+	}
+}
+
+func TestNewSinceYouLastLooked(t *testing.T) {
+	// Two listings: one appeared an hour ago (new), one three days ago (not).
+	hourAgo, daysAgo := time.Now().Add(-time.Hour), time.Now().Add(-72*time.Hour)
+	f := fakeFeed{listings: listings(2)}
+	f.listings[0].Title, f.listings[0].FeedAt = "Fresh Intern", &hourAgo
+	f.listings[1].Title, f.listings[1].FeedAt = "Older Intern", &daysAgo
+
+	// Logged out: no New badges, no count.
+	logged := newBrowserWithFeed(t, f, newFakeAccounts())
+	if _, page := logged.get("/"); strings.Contains(page, `chip new`) || !strings.Contains(page, "to see what") {
+		t.Error("logged out: should show no New badges and a log-in hint")
+	}
+
+	accounts := newFakeAccounts()
+	b := newBrowserWithFeed(t, f, accounts)
+	b.post("/signup", url.Values{"invite": {"good-invite"}, "email": {"a@college.edu"}, "password": {"correct horse battery"}})
+
+	// First visit: the last 24 hours are new.
+	_, page := b.get("/")
+	if strings.Count(page, `class="chip new"`) != 1 || !strings.Contains(page, "<strong>1 new</strong>") {
+		t.Error("first visit: want exactly the fresh listing marked New, and '1 new'")
+	}
+	if _, page := b.get("/?new=1"); strings.Contains(page, "Older Intern") || !strings.Contains(page, "Fresh Intern") {
+		t.Error("Only new should hide the older listing")
+	}
+
+	// Mark all as seen, coming back to the same filtered view.
+	status, _ := b.post("/seen", url.Values{"back": {"/?new=1&type=internship"}})
+	if status != http.StatusSeeOther {
+		t.Fatalf("mark all as seen: status %d", status)
+	}
+	if _, page := b.get("/"); strings.Contains(page, `class="chip new"`) || !strings.Contains(page, "<strong>0 new</strong>") {
+		t.Error("after Mark all as seen, nothing should be New")
+	}
+}
+
+func TestMarkAllSeen_StaysOnSite(t *testing.T) {
+	b := newBrowser(t, newFakeAccounts())
+	b.post("/signup", url.Values{"invite": {"good-invite"}, "email": {"a@college.edu"}, "password": {"correct horse battery"}})
+	for _, back := range []string{"https://evil.example", "//evil.example", "/\\evil.example"} {
+		req, _ := http.NewRequest("POST", b.srv.URL+"/seen", strings.NewReader(url.Values{"back": {back}}.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Sec-Fetch-Site", "same-origin")
+		res, err := b.client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if loc := res.Header.Get("Location"); loc != "/" {
+			t.Errorf("back=%q redirected to %q, want /", back, loc)
+		}
 	}
 }

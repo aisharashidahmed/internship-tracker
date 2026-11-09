@@ -723,3 +723,185 @@ func TestSessions(t *testing.T) {
 		t.Error("session still works after logout")
 	}
 }
+
+// --- Slice 8: cleaning up after rule changes ---
+
+// previousRun makes every stored posting look saved by an earlier run.
+func previousRun(t *testing.T, s *Store) {
+	t.Helper()
+	if err := exec(t, s, `UPDATE listing_sources SET last_seen_at = now() - interval '1 hour'`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func reattach(t *testing.T, s *Store, source string) MergeReport {
+	t.Helper()
+	id := scalar[int64](t, s, `SELECT id FROM sources WHERE name = $1`, source)
+	rep, err := s.ReattachMovedPostings(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rep
+}
+
+func TestReattach_RuleChangeMergesTheEmptiedListing(t *testing.T) {
+	s := newTestStore(t)
+	old := listing.Posting{SourceListingID: "r1", Company: "Shield AI", Title: "Engineer 2 New Grad",
+		JobType: listing.Internship, Season: "Summer 2027", ApplyURL: "https://x.com/jobs/r1", Active: true}
+	saveFrom(t, s, "simplify", old)
+	oldID := scalar[int64](t, s, `SELECT id FROM listings`)
+	previousRun(t, s)
+
+	// The new rule says it's a new-grad role: a different key, so a new listing.
+	now := old
+	now.JobType = listing.NewGrad
+	saveFrom(t, s, "simplify", now)
+
+	rep := reattach(t, s, "simplify")
+	if rep.Moved != 1 || rep.Merged != 1 {
+		t.Errorf("report = %+v, want 1 moved and 1 merged", rep)
+	}
+	if n := scalar[int](t, s, `SELECT count(*) FROM listings WHERE id = $1`, oldID); n != 0 {
+		t.Error("the old, emptied listing is still there")
+	}
+	if jt := scalar[string](t, s, `SELECT job_type FROM listings`); jt != "new_grad" {
+		t.Errorf("remaining listing is %s, want new_grad", jt)
+	}
+}
+
+func TestReattach_ListingWithOtherPostingsStays(t *testing.T) {
+	s := newTestStore(t)
+	a := listing.Posting{SourceListingID: "a", Company: "Acme", Title: "SWE Intern", JobType: listing.Internship,
+		Season: "Summer 2027", ApplyURL: "https://acme.com/jobs/a1234", Active: true}
+	b := a
+	b.SourceListingID, b.ApplyURL = "b", "https://acme.com/jobs/b1234"
+	saveFrom(t, s, "simplify", a, b) // one listing, two postings
+	previousRun(t, s)
+
+	moved := a
+	moved.Title = "SWE Intern, Payments" // a rule change gives "a" a different key
+	saveFrom(t, s, "simplify", moved)
+
+	if rep := reattach(t, s, "simplify"); rep.Moved != 1 || rep.Merged != 0 {
+		t.Errorf("report = %+v, want 1 moved, 0 merged (the old listing still has b)", rep)
+	}
+	if n := scalar[int](t, s, `SELECT count(*) FROM listings`); n != 2 {
+		t.Errorf("listings = %d, want 2", n)
+	}
+}
+
+func TestReattach_SameAdInTwoSeasonsIsNotAMove(t *testing.T) {
+	s := newTestStore(t)
+	summer := listing.Posting{SourceListingID: "x", Company: "Acme", Title: "SWE Intern", JobType: listing.Internship,
+		Season: "Summer 2027", ApplyURL: "https://acme.com/careers", Active: true}
+	saveFrom(t, s, "simplify", summer)
+	previousRun(t, s)
+	fall := summer
+	fall.Season = "Fall 2027"
+	saveFrom(t, s, "simplify", fall) // same record id, another season
+
+	if rep := reattach(t, s, "simplify"); rep.Moved != 0 {
+		t.Errorf("report = %+v; a second season is a second listing, not a move", rep)
+	}
+}
+
+func TestDB_KeptApartPairIsUniqueAndOrdered(t *testing.T) {
+	s := newTestStore(t)
+	saveFrom(t, s, "simplify", simplifyFigma)
+	fall := simplifyFigma
+	fall.Season, fall.SourceListingID = "Fall 2027", "s2"
+	saveFrom(t, s, "simplify", fall)
+	ids := scalar[[]int64](t, s, `SELECT array_agg(id ORDER BY id) FROM listings`)
+
+	q := `INSERT INTO listings_kept_apart (listing_a, listing_b, reason) VALUES ($1, $2, 'test')`
+	if err := exec(t, s, q, ids[0], ids[1]); err != nil {
+		t.Fatal(err)
+	}
+	requireUniqueViolation(t, exec(t, s, q, ids[0], ids[1]))
+	if err := exec(t, s, q, ids[1], ids[0]); err == nil {
+		t.Error("pair stored larger id first; the CHECK should require a < b, so each pair has one row")
+	}
+}
+
+// --- Slice 8: new since you last looked ---
+
+func TestViewFeed_Boundary(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	uid := scalar[int64](t, s, `INSERT INTO users (email, password_hash) VALUES ('a@b.co', 'x') RETURNING id`)
+	dbNow := scalar[time.Time](t, s, `SELECT now()`) // fixed for the whole test transaction
+	view := func() time.Time {
+		t.Helper()
+		since, err := s.ViewFeed(ctx, uid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return since
+	}
+
+	if got := view(); !got.Equal(dbNow.Add(-FirstVisitWindow)) {
+		t.Errorf("first visit: new since %v, want 24 hours ago", got)
+	}
+	if got := view(); !got.Equal(dbNow.Add(-FirstVisitWindow)) {
+		t.Errorf("refresh: new since %v; the boundary must not move mid-visit", got)
+	}
+
+	// The last page view was 2 hours ago: a new visit starts, and
+	// everything up to then counts as seen.
+	exec(t, s, `UPDATE users SET last_feed_view_at = now() - interval '2 hours'`)
+	if got := view(); !got.Equal(dbNow.Add(-2 * time.Hour)) {
+		t.Errorf("back after 2h: new since %v, want 2 hours ago", got)
+	}
+
+	// 20 minutes away is the same visit.
+	exec(t, s, `UPDATE users SET last_feed_view_at = now() - interval '20 minutes'`)
+	if got := view(); !got.Equal(dbNow.Add(-2 * time.Hour)) {
+		t.Errorf("back after 20m: new since %v; under 30 minutes is the same visit", got)
+	}
+
+	if err := s.MarkAllSeen(ctx, uid); err != nil {
+		t.Fatal(err)
+	}
+	if got := view(); !got.Equal(dbNow) {
+		t.Errorf("after Mark all as seen: new since %v, want now", got)
+	}
+	if got, ok, _ := s.FeedNewSince(ctx, uid); !ok || !got.Equal(dbNow) {
+		t.Errorf("FeedNewSince = %v, %v", got, ok)
+	}
+}
+
+func TestFeed_OnlyNewAndCount(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	add := func(title string, daysAgo int) {
+		t.Helper()
+		l := listing.Group([]listing.Posting{{SourceListingID: title, Company: "Acme", Title: title,
+			JobType: listing.Internship, Season: "Summer 2027", ApplyURL: "https://acme.com/c", Active: true,
+			PostedAt: time.Now().AddDate(0, 0, -daysAgo)}})[0]
+		simplifyID := scalar[int64](t, s, `SELECT id FROM sources WHERE name = 'simplify'`)
+		if _, err := s.SaveListing(ctx, simplifyID, l, true); err != nil { // first load: feed_at = posted date
+			t.Fatal(err)
+		}
+	}
+	add("Old Intern", 5)
+	add("Yesterday Intern", 1)
+	add("Today Intern", 0)
+
+	since := time.Now().Add(-36 * time.Hour)
+	q := FeedQuery{JobType: listing.Internship, Limit: 10, NewSince: &since, OnlyNew: true}
+	feed, _ := s.Feed(ctx, q)
+	if len(feed) != 2 || feed[0].Title != "Today Intern" {
+		t.Errorf("only new = %d listings starting %q; want Today, Yesterday", len(feed), feed[0].Title)
+	}
+	if n, _ := s.CountFeed(ctx, q); n != 2 {
+		t.Errorf("CountFeed(only new) = %d, want 2", n)
+	}
+	q.OnlyNew = false
+	if n, _ := s.CountFeed(ctx, q); n != 3 {
+		t.Errorf("CountFeed(all) = %d, want 3", n)
+	}
+	q.NewSince, q.OnlyNew = nil, true // logged out: "only new" means nothing
+	if n, _ := s.CountFeed(ctx, q); n != 3 {
+		t.Errorf("CountFeed(logged out) = %d, want 3", n)
+	}
+}

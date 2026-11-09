@@ -73,6 +73,12 @@ func printReport(r ingest.Report) {
 		store.OutcomeStale, store.OutcomeClosed, store.OutcomeIgnored} {
 		fmt.Printf("  %-10s %6d\n", o, r.Counts[o])
 	}
+	if r.RulesChanged {
+		fmt.Println("  (matching rules changed since the last run: re-saved everything)")
+	}
+	if m := r.Merges; m.Moved > 0 {
+		fmt.Printf("  after a rule change: %d postings moved, %d listings merged, %d kept apart\n", m.Moved, m.Merged, m.KeptApart)
+	}
 }
 
 // Titles sharing at least this share of words are worth a human look.
@@ -102,6 +108,18 @@ func printPossibleDuplicates(ctx context.Context, s *store.Store) error {
 			p.B.ID, p.B.Title, seasonOrUnknown(p.B.Season))
 	}
 	fmt.Println("  (ignored = inactive on the source and never stored; stale = vanished from its source, may be closed)")
+
+	// Pairs a rule change would have merged, kept apart on purpose.
+	kept, err := s.KeptApartPairs(ctx)
+	if err != nil {
+		return err
+	}
+	if len(kept) > 0 {
+		fmt.Printf("\nkept apart after a rule change (possible duplicates): %d\n", len(kept))
+		for _, k := range kept {
+			fmt.Println("  " + k)
+		}
+	}
 	return nil
 }
 

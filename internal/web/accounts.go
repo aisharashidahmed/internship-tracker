@@ -22,6 +22,9 @@ type Accounts interface {
 	CreateSession(ctx context.Context, userID int64) (string, time.Time, error)
 	SessionUser(ctx context.Context, token string) (u store.User, found, renewed bool, expires time.Time, err error)
 	DeleteSession(ctx context.Context, token string) error
+	ViewFeed(ctx context.Context, userID int64) (time.Time, error)
+	FeedNewSince(ctx context.Context, userID int64) (time.Time, bool, error)
+	MarkAllSeen(ctx context.Context, userID int64) error
 }
 
 const sessionCookie = "session"

@@ -4,12 +4,22 @@
   <h1>Internship feed</h1>
   <p class="sub">Newest first, from Simplify and SpeedyApply, updated every hour.</p>
 
+  {{if .NewSince}}
+  <div class="newbar">
+    <span><strong>{{.NewCount}} new</strong> since {{since .NewSince}}</span>
+    {{if .NewCount}}<form method="post" action="/seen"><input type="hidden" name="back" value="{{.HereURL}}"><button class="linkbtn" type="submit">Mark all as seen</button></form>{{end}}
+  </div>
+  {{else if not .User}}
+  <p class="sub"><a href="/login">Log in</a> to see what's new since your last visit.</p>
+  {{end}}
+
   <form class="filters" method="get" action="/" id="filters">
     <div class="row">
       <span class="row-label">Show</span>
       <div class="seg" role="radiogroup" aria-label="Job type">
         {{range .JobTypeOptions}}<label><input class="sr" type="radio" name="type" value="{{.Value}}"{{if .On}} checked{{end}}><span>{{.Label}}</span></label>{{end}}
       </div>
+      {{if .NewSince}}<label class="pick"><input class="sr" type="checkbox" name="new" value="1"{{if .Filters.OnlyNew}} checked{{end}}><span>Only new</span></label>{{end}}
       {{if .Filtered}}<a class="clear" href="{{.ClearURL}}">Clear filters</a>{{end}}
     </div>
 
@@ -43,6 +53,7 @@
       <span>{{.Where}}</span>{{if .Season}}<span>{{.Season}}</span>{{end}}<span>{{if .PostedAt}}posted {{ago .PostedAt}}{{else}}first seen {{ago .FirstSeenAt}}{{end}}</span>
     </div>
     <div class="chips">
+      {{if .New}}<span class="chip new">New</span>{{end}}
       {{if .Stale}}<span class="chip warn">May be closed</span>{{end}}
       {{range .Roles}}<span class="chip role">{{roleLabel .}}</span>{{end}}
       {{range .Industries}}<span class="chip industry">{{industryLabel .}}</span>{{end}}

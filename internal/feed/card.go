@@ -29,7 +29,9 @@ type Card struct {
 	Stale              bool       `json:"stale"`
 	AdvancedDegreeOnly bool       `json:"advanced_degree_only"`
 	PostedAt           *time.Time `json:"posted_at,omitempty"`
-	FirstSeenAt        time.Time  `json:"first_seen_at"`
+	// New: appeared after you last looked. Always false when logged out.
+	New         bool      `json:"new"`
+	FirstSeenAt time.Time `json:"first_seen_at"`
 }
 
 // Link is one opening: a job link, with every source that lists it.
@@ -40,11 +42,12 @@ type Link struct {
 	NotSeenSince *time.Time `json:"not_seen_since,omitempty"` // set if every source stopped listing it
 }
 
-// NewCard builds the card for one listing.
+// NewCard builds the card for one listing. newSince is the viewer's
+// "new since you last looked" boundary, or nil when logged out.
 //
 // Only active postings count: a link a source marked closed is not an
 // opening. A link two sources both list (same job link) is one opening.
-func NewCard(l store.FeedListing) Card {
+func NewCard(l store.FeedListing, newSince *time.Time) Card {
 	c := Card{
 		ID:                 l.ID,
 		Company:            l.Company,
@@ -55,6 +58,7 @@ func NewCard(l store.FeedListing) Card {
 		PostedAt:           l.PostedAt,
 		FirstSeenAt:        l.FirstSeenAt,
 		Links:              []Link{},
+		New:                newSince != nil && l.FeedAt != nil && l.FeedAt.After(*newSince),
 		Roles:              sortedRoles(l.Roles),
 		Industries:         append([]string{}, l.Industries...),
 	}

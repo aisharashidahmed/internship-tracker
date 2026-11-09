@@ -48,11 +48,13 @@ type Options struct {
 
 // Report summarizes one run.
 type Report struct {
-	Source      string
-	NotModified bool // skipped: the file hasn't changed since the last fetch
-	Postings    int  // postings for the target year after parsing
-	Counts      map[store.Outcome]int
-	Took        time.Duration
+	Source       string
+	NotModified  bool // skipped: the file hasn't changed since the last fetch
+	RulesChanged bool // the matching rules changed since this source was last saved
+	Postings     int  // postings for the target year after parsing
+	Counts       map[store.Outcome]int
+	Merges       store.MergeReport // listings merged or kept apart after a rule change
+	Took         time.Duration
 }
 
 // ErrBusy means another ingest of the same source was writing at the same
@@ -70,8 +72,12 @@ func (in *Ingester) Run(ctx context.Context, adapter source.Adapter, opts Option
 		return report, err
 	}
 
+	// Re-download and re-save if asked to, or if the matching rules changed
+	// since this source was last saved: an unchanged file still needs
+	// re-matching under new rules.
+	report.RulesChanged = src.RulesVersion != listing.RulesVersion
 	etag := src.ETag
-	if opts.Force {
+	if opts.Force || report.RulesChanged {
 		etag = ""
 	}
 	res, err := fetch(ctx, in.Client, src.URL, etag)
@@ -81,7 +87,7 @@ func (in *Ingester) Run(ctx context.Context, adapter source.Adapter, opts Option
 	if res.NotModified {
 		report.NotModified = true
 		report.Took = time.Since(start)
-		return report, in.Store.MarkFetched(ctx, src.ID, res.ETag)
+		return report, in.Store.MarkFetched(ctx, src.ID, res.ETag, "")
 	}
 
 	postings, err := adapter.Parse(res.Body)
@@ -110,6 +116,14 @@ func (in *Ingester) Run(ctx context.Context, adapter source.Adapter, opts Option
 			report.Counts[outcome]++
 		}
 
+		// After a rule change, postings saved under a different listing than
+		// before leave their old row behind; clean those up first.
+		merges, err := tx.ReattachMovedPostings(ctx, src.ID)
+		if err != nil {
+			return err
+		}
+		report.Merges = merges
+
 		// Postings this file no longer lists become "not seen since now".
 		var seen []string
 		for _, p := range postings {
@@ -123,7 +137,7 @@ func (in *Ingester) Run(ctx context.Context, adapter source.Adapter, opts Option
 
 		// Save the ETag in the same transaction, so we only skip next time
 		// if this run's data was actually stored.
-		return tx.MarkFetched(ctx, src.ID, res.ETag)
+		return tx.MarkFetched(ctx, src.ID, res.ETag, listing.RulesVersion)
 	})
 	if err != nil {
 		return report, fmt.Errorf("ingest %s: %w", adapter.Name(), err)

@@ -164,3 +164,58 @@ func (s *Store) DeleteExpiredSessions(ctx context.Context) (int64, error) {
 	tag, err := s.db.Exec(ctx, `DELETE FROM sessions WHERE expires_at <= now()`)
 	return tag.RowsAffected(), err
 }
+
+// Rules for "new since you last looked" (decided 2026-11-08).
+const (
+	// AwayGap: a visit after this long away starts a new session, and
+	// everything up to the end of the last one counts as seen. Shorter gaps
+	// (refreshing, paging) keep the New badges.
+	AwayGap = 30 * time.Minute
+	// FirstVisitWindow: on a first visit, the last day counts as new.
+	FirstVisitWindow = 24 * time.Hour
+)
+
+// ViewFeed records that a user opened the feed and returns the "new since"
+// boundary to use. One UPDATE does the whole decision, so two tabs opened
+// at once can't move the boundary twice:
+//   - first visit ever: new since FirstVisitWindow ago;
+//   - back after AwayGap or more: new since the end of the last visit;
+//   - otherwise (refresh, next page): the boundary doesn't move.
+func (s *Store) ViewFeed(ctx context.Context, userID int64) (time.Time, error) {
+	var since time.Time
+	err := s.db.QueryRow(ctx, `
+		UPDATE users SET
+			last_seen_feed_at = CASE
+				WHEN last_feed_view_at IS NULL THEN now() - $2::interval
+				WHEN last_feed_view_at < now() - $3::interval
+					-- GREATEST: "Mark all as seen" may already be later than the last view
+					THEN GREATEST(last_feed_view_at, last_seen_feed_at)
+				ELSE last_seen_feed_at
+			END,
+			last_feed_view_at = now()
+		WHERE id = $1
+		RETURNING last_seen_feed_at`,
+		userID, FirstVisitWindow.String(), AwayGap.String()).Scan(&since)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("record feed view: %w", err)
+	}
+	return since, nil
+}
+
+// FeedNewSince returns the current boundary without counting a visit
+// (for the JSON API). ok is false if the user has never opened the feed.
+func (s *Store) FeedNewSince(ctx context.Context, userID int64) (since time.Time, ok bool, err error) {
+	var t *time.Time
+	err = s.db.QueryRow(ctx, `SELECT last_seen_feed_at FROM users WHERE id = $1`, userID).Scan(&t)
+	if err != nil || t == nil {
+		return time.Time{}, false, err
+	}
+	return *t, true, nil
+}
+
+// MarkAllSeen moves the boundary to now: "Mark all as seen".
+func (s *Store) MarkAllSeen(ctx context.Context, userID int64) error {
+	_, err := s.db.Exec(ctx,
+		`UPDATE users SET last_seen_feed_at = now(), last_feed_view_at = now() WHERE id = $1`, userID)
+	return err
+}

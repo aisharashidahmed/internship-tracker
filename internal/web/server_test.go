@@ -30,11 +30,30 @@ func (f fakeFeed) Feed(_ context.Context, q store.FeedQuery) ([]store.FeedListin
 	if q.JobType != listing.Internship {
 		return nil, nil
 	}
-	limit, offset := q.Limit, q.Offset
-	if offset >= len(f.listings) {
+	var matching []store.FeedListing
+	for _, l := range f.listings {
+		if q.OnlyNew && q.NewSince != nil && (l.FeedAt == nil || !l.FeedAt.After(*q.NewSince)) {
+			continue
+		}
+		matching = append(matching, l)
+	}
+	if q.Offset >= len(matching) {
 		return nil, nil
 	}
-	return f.listings[offset:min(offset+limit, len(f.listings))], nil
+	return matching[q.Offset:min(q.Offset+q.Limit, len(matching))], nil
+}
+
+func (f fakeFeed) CountFeed(_ context.Context, q store.FeedQuery) (int, error) {
+	if q.JobType != listing.Internship {
+		return 0, nil
+	}
+	n := 0
+	for _, l := range f.listings {
+		if q.NewSince == nil || (l.FeedAt != nil && l.FeedAt.After(*q.NewSince)) {
+			n++
+		}
+	}
+	return n, nil
 }
 
 func listings(n int) []store.FeedListing {
@@ -147,6 +166,8 @@ func (f fakeRecorder) Feed(_ context.Context, q store.FeedQuery) ([]store.FeedLi
 	*f.got = q
 	return nil, nil
 }
+
+func (f fakeRecorder) CountFeed(context.Context, store.FeedQuery) (int, error) { return 0, nil }
 
 func TestFilters_FromURL(t *testing.T) {
 	var q store.FeedQuery

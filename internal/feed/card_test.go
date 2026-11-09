@@ -27,7 +27,7 @@ func TestNewCard_OpeningsAndWhere(t *testing.T) {
 		},
 	}
 
-	c := NewCard(l)
+	c := NewCard(l, nil)
 
 	if c.Openings != 2 {
 		t.Errorf("openings = %d, want 2 (R1 in both sources counts once; R3 is closed)", c.Openings)
@@ -35,7 +35,7 @@ func TestNewCard_OpeningsAndWhere(t *testing.T) {
 	if c.Where != "Sunnyvale + 2 more" {
 		t.Errorf("where = %q, want %q", c.Where, "Sunnyvale + 2 more")
 	}
-	if got := NewCard(store.FeedListing{Roles: []string{"ml", "backend"}}).Roles; strings.Join(got, ",") != "backend,ml" {
+	if got := NewCard(store.FeedListing{Roles: []string{"ml", "backend"}}, nil).Roles; strings.Join(got, ",") != "backend,ml" {
 		t.Errorf("roles = %q, want filter-bar order backend,ml", got)
 	}
 	if got := c.Links[0].Sources; len(got) != 2 {
@@ -48,7 +48,7 @@ func TestNewCard_GenericLinksCountedBySpelling(t *testing.T) {
 		{Source: "simplify", ApplyURL: "https://figma.com/careers", Active: true},
 		{Source: "speedyapply", ApplyURL: "https://figma.com/careers", Active: true},
 	}}
-	if c := NewCard(l); c.Openings != 1 || c.Where != "Location unknown" {
+	if c := NewCard(l, nil); c.Openings != 1 || c.Where != "Location unknown" {
 		t.Errorf("openings = %d where = %q, want 1 and Location unknown", c.Openings, c.Where)
 	}
 }
@@ -59,7 +59,21 @@ func TestNewCard_NotSeenSinceOnlyIfNoSourceListsIt(t *testing.T) {
 		{Source: "speedyapply", ApplyURL: "https://x.com/jobs/12345", JobLink: ptr("x.com/jobs/12345"), Active: true, MissingSince: &gone},
 		{Source: "simplify", ApplyURL: "https://x.com/jobs/12345", JobLink: ptr("x.com/jobs/12345"), Active: true},
 	}}
-	if c := NewCard(l); c.Links[0].NotSeenSince != nil {
+	if c := NewCard(l, nil); c.Links[0].NotSeenSince != nil {
 		t.Error("Simplify still lists the link, so it should not show 'not seen since'")
+	}
+}
+
+func TestNewCard_New(t *testing.T) {
+	since := time.Date(2026, 11, 8, 9, 0, 0, 0, time.UTC)
+	before, after := since.Add(-time.Minute), since.Add(time.Minute)
+	if !NewCard(store.FeedListing{FeedAt: &after}, &since).New {
+		t.Error("appeared after the boundary but not New")
+	}
+	if NewCard(store.FeedListing{FeedAt: &before}, &since).New {
+		t.Error("appeared before the boundary but New")
+	}
+	if NewCard(store.FeedListing{FeedAt: &after}, nil).New {
+		t.Error("logged out: nothing is New")
 	}
 }

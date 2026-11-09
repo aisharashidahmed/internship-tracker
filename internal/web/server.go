@@ -36,6 +36,7 @@ var templates embed.FS
 // satisfies it; tests pass a fake, so they need no database.
 type FeedReader interface {
 	Feed(ctx context.Context, q store.FeedQuery) ([]store.FeedListing, error)
+	CountFeed(ctx context.Context, q store.FeedQuery) (int, error)
 }
 
 // Server holds what every request needs.
@@ -60,6 +61,7 @@ type Options struct {
 func New(f FeedReader, accounts Accounts, opts Options) (*Server, error) {
 	tmpl, err := template.New("").Funcs(template.FuncMap{
 		"ago":           func(t time.Time) string { return ago(t, time.Now()) },
+		"since":         func(t time.Time) string { return t.Local().Format("Mon 3:04 PM") },
 		"roleLabel":     listing.RoleLabel,
 		"industryLabel": func(s string) string { return listing.IndustryLabels[listing.Industry(s)] },
 	}).ParseFS(templates, "templates/*.html")
@@ -87,6 +89,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /login", s.loginPage)
 	mux.HandleFunc("POST /login", s.login)
 	mux.HandleFunc("POST /logout", s.logout)
+	mux.HandleFunc("POST /seen", s.markAllSeen)
 	return http.NewCrossOriginProtection().Handler(s.withUser(mux))
 }
 
@@ -96,6 +99,7 @@ type Filters struct {
 	Roles      []listing.Role     `json:"roles"`
 	MatchAll   bool               `json:"match_all_roles"`
 	Industries []listing.Industry `json:"industries"`
+	OnlyNew    bool               `json:"only_new"` // only listings new since you last looked (logged in)
 }
 
 // jobTypes are the two tabs; the first is the default.
@@ -106,7 +110,7 @@ var jobTypeLabels = map[listing.JobType]string{listing.Internship: "Internships"
 // parseFilters reads the URL. Unknown values are ignored rather than
 // rejected: an old bookmark should still show something sensible.
 func parseFilters(q url.Values) Filters {
-	f := Filters{JobType: jobTypes[0], MatchAll: q.Get("match") == "all"}
+	f := Filters{JobType: jobTypes[0], MatchAll: q.Get("match") == "all", OnlyNew: q.Get("new") == "1"}
 	if t := listing.JobType(q.Get("type")); slices.Contains(jobTypes, t) {
 		f.JobType = t
 	}
@@ -135,6 +139,9 @@ func (f Filters) query(page int) string {
 	for _, i := range f.Industries {
 		v.Add("industry", string(i))
 	}
+	if f.OnlyNew {
+		v.Set("new", "1")
+	}
 	if page > 1 {
 		v.Set("page", strconv.Itoa(page))
 	}
@@ -143,7 +150,9 @@ func (f Filters) query(page int) string {
 
 // Page is one page of the feed; it is also the JSON response body.
 type Page struct {
-	User     *store.User `json:"-"` // for the header only
+	User     *store.User `json:"-"`                   // for the header only
+	NewSince *time.Time  `json:"new_since,omitempty"` // logged in only
+	NewCount int         `json:"new_count"`           // listings new since then, under these filters
 	Filters  Filters     `json:"filters"`
 	Page     int         `json:"page"`
 	NextPage int         `json:"next_page,omitempty"` // 0 (omitted) on the last page
@@ -183,42 +192,97 @@ func (p Page) IndustryOptions() []Option {
 	return out
 }
 
-// Filtered reports whether any role or industry filter is on.
-func (p Page) Filtered() bool { return len(p.Filters.Roles) > 0 || len(p.Filters.Industries) > 0 }
+// Filtered reports whether any filter beyond the tab is on.
+func (p Page) Filtered() bool {
+	return len(p.Filters.Roles) > 0 || len(p.Filters.Industries) > 0 || p.Filters.OnlyNew
+}
+
+// HereURL is this page's own address, so "Mark all as seen" can come back.
+func (p Page) HereURL() string { return "/" + p.Filters.query(p.Page) }
 
 // ClearURL keeps the tab but drops role and industry filters.
 func (p Page) ClearURL() string { return Filters{JobType: p.Filters.JobType}.query(1) }
 func (p Page) NextURL() string  { return p.Filters.query(p.NextPage) }
 func (p Page) PrevURL() string  { return p.Filters.query(p.Page - 1) }
 
-func (s *Server) loadPage(r *http.Request) (Page, error) {
+// loadPage builds one feed page. countsAsVisit is true for the HTML page:
+// opening it is "looking" (see store.ViewFeed). The JSON API only reads
+// the boundary, so a script polling it can't clear your New badges.
+func (s *Server) loadPage(r *http.Request, countsAsVisit bool) (Page, error) {
+	ctx := r.Context()
 	n, err := strconv.Atoi(r.URL.Query().Get("page"))
 	if err != nil || n < 1 {
 		n = 1
 	}
-	f := parseFilters(r.URL.Query())
+	p := Page{User: currentUser(r), Filters: parseFilters(r.URL.Query()), Page: n, Cards: []feed.Card{}}
 
-	// Ask for one extra row: if it comes back, there is a next page.
-	listings, err := s.feed.Feed(r.Context(), store.FeedQuery{
+	if p.User != nil {
+		var since time.Time
+		ok := true
+		if countsAsVisit {
+			since, err = s.accounts.ViewFeed(ctx, p.User.ID)
+		} else {
+			since, ok, err = s.accounts.FeedNewSince(ctx, p.User.ID)
+		}
+		if err != nil {
+			return Page{}, err
+		}
+		if ok {
+			p.NewSince = &since
+		}
+	}
+	if p.NewSince == nil {
+		p.Filters.OnlyNew = false // nothing is "new" without a boundary
+	}
+
+	f := p.Filters
+	q := store.FeedQuery{
 		JobType: f.JobType, Roles: f.Roles, MatchAllRoles: f.MatchAll, Industries: f.Industries,
-		Limit: PageSize + 1, Offset: (n - 1) * PageSize,
-	})
+		OnlyNew: f.OnlyNew, NewSince: p.NewSince,
+		Limit: PageSize + 1, Offset: (n - 1) * PageSize, // one extra row: if it comes back, there's a next page
+	}
+	listings, err := s.feed.Feed(ctx, q)
 	if err != nil {
 		return Page{}, err
 	}
-	p := Page{User: currentUser(r), Filters: f, Page: n, Cards: []feed.Card{}}
+	if p.NewSince != nil {
+		q.OnlyNew = true
+		if p.NewCount, err = s.feed.CountFeed(ctx, q); err != nil {
+			return Page{}, err
+		}
+	}
+
 	if len(listings) > PageSize {
 		listings = listings[:PageSize]
 		p.NextPage = n + 1
 	}
 	for _, l := range listings {
-		p.Cards = append(p.Cards, feed.NewCard(l))
+		p.Cards = append(p.Cards, feed.NewCard(l, p.NewSince))
 	}
 	return p, nil
 }
 
+// markAllSeen handles the "Mark all as seen" button, then returns to the
+// same feed view. Only paths on this site are accepted as the way back.
+func (s *Server) markAllSeen(w http.ResponseWriter, r *http.Request) {
+	u := currentUser(r)
+	if u == nil {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	if err := s.accounts.MarkAllSeen(r.Context(), u.ID); err != nil {
+		serverError(w, err)
+		return
+	}
+	back := r.PostFormValue("back")
+	if !strings.HasPrefix(back, "/?") {
+		back = "/" // never redirect off-site ("//evil.com" doesn't start with "/?")
+	}
+	http.Redirect(w, r, back, http.StatusSeeOther)
+}
+
 func (s *Server) feedJSON(w http.ResponseWriter, r *http.Request) {
-	p, err := s.loadPage(r)
+	p, err := s.loadPage(r, false)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -228,7 +292,7 @@ func (s *Server) feedJSON(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) feedPage(w http.ResponseWriter, r *http.Request) {
-	p, err := s.loadPage(r)
+	p, err := s.loadPage(r, true)
 	if err != nil {
 		serverError(w, err)
 		return

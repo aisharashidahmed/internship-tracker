@@ -114,3 +114,10 @@ func TestIndustries_ApprovedNamesLeaveTheReview(t *testing.T) {
 		t.Errorf("approval without a keyword match must not tag: %+v", got)
 	}
 }
+
+func TestRulesVersion(t *testing.T) {
+	const emptyHash = "e3b0c44298fc" // SHA-256 of nothing: the files weren't read
+	if len(RulesVersion) != 12 || RulesVersion == emptyHash {
+		t.Errorf("RulesVersion = %q; want a 12-character fingerprint of the rule files", RulesVersion)
+	}
+}

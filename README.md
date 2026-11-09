@@ -98,6 +98,23 @@ keyword matches nobody has approved yet; move each to *approved* or *never*.
 Roles match **any** ("Backend / ML") or **all** ("Backend + ML"); different
 filter groups always combine with AND.
 
+## New since you last looked
+
+Logged in, the feed shows "N new since Tue 9:00 AM", a **New** chip on each
+new card, and an **Only new** filter. "New" means it appeared after you last
+looked. That moves forward on its own only when you come back after 30+
+minutes away (refreshing or paging keeps your badges), or when you click
+**Mark all as seen**. On your first visit, the last 24 hours count as new.
+
+## When the matching rules change
+
+The rules live in `internal/listing`, and the app fingerprints that code.
+When it changes, the next ingest re-saves every source once (even if GitHub
+says the file is unchanged). A posting that now matches a different listing
+leaves its old one; an old listing left with no postings is merged into the
+new one, unless a person applied to both, in which case both are kept and
+listed as possible duplicates.
+
 ## Accounts
 
 The feed is public; an account adds personal features. Sign-up is
