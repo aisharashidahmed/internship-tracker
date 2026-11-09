@@ -67,6 +67,21 @@ so a manual `go run ./cmd/ingest` while the server runs is safe.
 
 ## The feed
 
+A warm "sunset" design (coral, amber, plum) in light and dusk-dark mode; every
+text/background color pair meets WCAG 4.5:1 contrast. On desktop, filters sit
+in a left sidebar beside a two-column grid; on phones, one column, and the
+filters slide up from a **Filters** button (all tap targets 44px or more).
+
+- **Search** company or title; a **live count** ("312 roles match") updates as
+  you type or change filters.
+- **One card per role**: the same role at the same company in several seasons
+  shows as one card with season chips (Summer / Spring / ...). Pick a season;
+  Apply, Save and I applied act on that season. Listings stay separate in the
+  database, and cards are grouped before paging so none is split across pages.
+- Each company gets a colored initial circle (from a hash of its name).
+- **Posted today** (the source's posted date is today, in your timezone) and
+  **New for you** (since your last visit).
+
 Two tabs, **Internships** (default) and **New grad**: a title containing
 "New Grad" makes a role new-grad even in an internship list. One card per
 listing, open roles first, freshest first; stale ones ("may be
@@ -82,7 +97,9 @@ Unknown dates go last.
 ## Tags and filters
 
 **Role tags** (a listing can have several): General SWE, Backend, Frontend,
-ML, Data, PM, Quant, Hardware. They come from the source's own section
+ML, AI, Data, PM, Quant, Hardware. ML needs an ML-specific term (machine
+learning, deep/reinforcement learning, computer vision, NLP, LLM, ...); a title
+with just "AI" gets the separate AI tag. They come from the source's own section
 (Simplify's Quant / Hardware / Product / AI/ML/Data, SpeedyApply's Quant) and
 from whole-word title keywords ("Backend", "Machine Learning", "APM", ...).
 General SWE means no more specific signal. Simplify's Product section gives PM

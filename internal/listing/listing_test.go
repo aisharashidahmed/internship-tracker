@@ -88,6 +88,18 @@ func TestDedupeKeyMerges(t *testing.T) {
 	}
 }
 
+func TestRoleKeyIgnoresSeason(t *testing.T) {
+	summer := posting("Tesla", "Software Engineer Intern - Summer 2027")
+	spring := posting("Tesla", "Software Engineer Intern - Spring 2027")
+	spring.Season = "Spring 2027"
+	if RoleKey(summer) != RoleKey(spring) {
+		t.Errorf("one role in two seasons got different role keys:\n %q\n %q", RoleKey(summer), RoleKey(spring))
+	}
+	if DedupeKey(summer) == DedupeKey(spring) {
+		t.Error("but they must stay separate listings")
+	}
+}
+
 func TestDedupeKeyKeepsApart(t *testing.T) {
 	fall := posting("Stripe", "Software Engineer Intern")
 	fall.Season = "Fall 2027"

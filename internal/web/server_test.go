@@ -47,13 +47,13 @@ func (f fakeFeed) CountFeed(_ context.Context, q store.FeedQuery) (int, error) {
 	if q.JobType != listing.Internship {
 		return 0, nil
 	}
-	n := 0
+	groups := map[string]bool{}
 	for _, l := range f.listings {
-		if q.NewSince == nil || (l.FeedAt != nil && l.FeedAt.After(*q.NewSince)) {
-			n++
+		if !q.OnlyNew || q.NewSince == nil || (l.FeedAt != nil && l.FeedAt.After(*q.NewSince)) {
+			groups[l.GroupKey] = true
 		}
 	}
-	return n, nil
+	return len(groups), nil
 }
 
 func listings(n int) []store.FeedListing {
@@ -62,7 +62,7 @@ func listings(n int) []store.FeedListing {
 	for i := range n {
 		link := fmt.Sprintf("workday:nokia:R%d", i)
 		out = append(out, store.FeedListing{
-			ID: int64(i + 1), Company: "Nokia", Title: "AI R&D Engineer Co-op", Status: store.StatusOpen,
+			ID: int64(i + 1), GroupKey: fmt.Sprintf("role-%d", i), Company: "Nokia", Title: "AI R&D Engineer Co-op", Status: store.StatusOpen,
 			PostedAt: &posted, FirstSeenAt: time.Now(),
 			Postings: []store.FeedPosting{{Source: "simplify", ApplyURL: "https://nokia.example/" + link,
 				JobLink: &link, Locations: []string{"Sunnyvale, CA"}, Active: true}},
@@ -183,7 +183,7 @@ func TestFilters_FromURL(t *testing.T) {
 		t.Errorf("industries = %v, want [healthcare]", q.Industries)
 	}
 	for _, want := range []string{`name="role" value="backend" checked`, `name="match" value="all" checked`,
-		`name="industry" value="healthcare" checked`, "No listings match these filters", `href="?type=new_grad"`} {
+		`name="industry" value="healthcare" checked`, "No roles match these filters", `href="?type=new_grad"`} {
 		if !strings.Contains(html, want) {
 			t.Errorf("page is missing %s", want)
 		}
@@ -194,5 +194,39 @@ func TestFilters_PageLinksKeepFilters(t *testing.T) {
 	f := Filters{JobType: listing.Internship, Roles: []listing.Role{listing.ML}, Industries: []listing.Industry{listing.Healthcare}}
 	if got := f.query(3); got != "?industry=healthcare&page=3&role=ml&type=internship" {
 		t.Errorf("query(3) = %s", got)
+	}
+}
+
+func TestSearchAndLiveCount(t *testing.T) {
+	var q store.FeedQuery
+	_, html := get(t, fakeRecorder{&q}, "/?q=+Tesla+&role=ml")
+	if q.Search != "Tesla" {
+		t.Errorf("search reached the query as %q, want Tesla", q.Search)
+	}
+	if !strings.Contains(html, `value="Tesla"`) {
+		t.Error("the search box should keep what you typed")
+	}
+
+	res, body := get(t, fakeFeed{listings: listings(7)}, "/api/count?type=internship")
+	if res.StatusCode != 200 || strings.TrimSpace(body) != `{"matching":7}` {
+		t.Errorf("/api/count = %d %s, want {\"matching\":7}", res.StatusCode, body)
+	}
+}
+
+func TestGroupedCardWithSeasonChips(t *testing.T) {
+	now := time.Now()
+	weekAgo := now.AddDate(0, 0, -7)
+	f := fakeFeed{listings: []store.FeedListing{
+		{ID: 1, GroupKey: "tesla", Company: "Tesla", Title: "SWE Intern", Season: "Summer 2027", Status: store.StatusOpen, FeedAt: &now, PostedAt: &now, FirstSeenAt: now},
+		{ID: 2, GroupKey: "tesla", Company: "Tesla", Title: "SWE Intern", Season: "Spring 2027", Status: store.StatusOpen, FeedAt: &weekAgo, FirstSeenAt: weekAgo},
+	}}
+	_, html := get(t, f, "/")
+	if strings.Count(html, `class="card role`) != 1 {
+		t.Error("two seasons of one role should be one card")
+	}
+	for _, want := range []string{`name="season-0" value="0" checked`, `<span>Spring 2027</span>`, "Posted today", "1 role matches"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("page is missing %s", want)
+		}
 	}
 }

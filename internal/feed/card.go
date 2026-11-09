@@ -30,7 +30,8 @@ type Card struct {
 	AdvancedDegreeOnly bool       `json:"advanced_degree_only"`
 	PostedAt           *time.Time `json:"posted_at,omitempty"`
 	// New: appeared after you last looked. Always false when logged out.
-	New bool `json:"new"`
+	New         bool `json:"new"`          // "New for you": since you last looked
+	PostedToday bool `json:"posted_today"` // first shown today, in the viewer's timezone
 	// Your application, if you have one: its id and a label like
 	// "Applied" or "Interview · round 2". Empty when logged out or none.
 	ApplicationID int64     `json:"application_id,omitempty"`

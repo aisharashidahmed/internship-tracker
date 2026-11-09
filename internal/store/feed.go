@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -12,7 +13,10 @@ import (
 
 // FeedListing is one listing as the feed needs it, with all its postings.
 type FeedListing struct {
-	ID          int64
+	ID int64
+	// GroupKey is shared by the same role's listings in different seasons
+	// (listings.role_key); the feed shows one card per group.
+	GroupKey    string
 	Company     string
 	Title       string
 	Season      string // "" if unknown
@@ -48,8 +52,22 @@ type FeedQuery struct {
 	// to are hidden unless ShowApplied; saved ones always show.
 	UserID      int64
 	ShowApplied bool
-	Limit       int
-	Offset      int
+	// Search matches company or title, ignoring case ("" = no search).
+	Search string
+	// Limit and Offset count groups (cards), not listings.
+	Limit  int
+	Offset int
+}
+
+// searchPattern turns typed text into an ILIKE pattern that matches it
+// anywhere, with %, _ and \ taken literally (so "100%" isn't a wildcard).
+func searchPattern(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return "%" + r.Replace(s) + "%"
 }
 
 // args returns the filter values in the order feedFilter numbers them.
@@ -70,11 +88,11 @@ func (q FeedQuery) args() []any {
 	if q.UserID != 0 {
 		userID = &q.UserID
 	}
-	return []any{q.JobType, roles, q.MatchAllRoles, industries, newSince, userID, q.ShowApplied}
+	return []any{q.JobType, roles, q.MatchAllRoles, industries, newSince, userID, q.ShowApplied, searchPattern(q.Search)}
 }
 
 // feedFilter is the WHERE clause shared by Feed and CountFeed, so the
-// "N new" count always agrees with the cards shown. Parameters $1-$7 come
+// "N new" count always agrees with the cards shown. Parameters $1-$8 come
 // from FeedQuery.args.
 const feedFilter = `
 	FROM listings l JOIN companies c ON c.id = l.company_id
@@ -91,7 +109,12 @@ const feedFilter = `
 	       OR EXISTS (SELECT 1 FROM company_industries ci
 	                  WHERE ci.company_id = l.company_id AND ci.industry = ANY($4)))
 	  -- "new" means: the feed's own time (see listings.feed_at) is after the boundary
-	  AND ($5::timestamptz IS NULL OR l.feed_at > $5)`
+	  AND ($5::timestamptz IS NULL OR l.feed_at > $5)
+	  -- search: company or title contains the text
+	  AND ($8 = '' OR c.name ILIKE $8 OR l.title ILIKE $8)`
+
+// groupKey is a listing's card: its role_key, or itself if it has none yet.
+const groupKey = `COALESCE(l.role_key, 'id:' || l.id)`
 
 // FeedPosting is one source's posting of a listing.
 type FeedPosting struct {
@@ -104,27 +127,43 @@ type FeedPosting struct {
 	LinkDead     bool       // the link checker found the link no longer works
 }
 
-// Feed returns one page of visible listings matching q: open before stale,
-// then freshest first (see listings.feed_at), unknown dates last.
+// Feed returns one page of cards matching q, as listings: every matching
+// listing of each card on the page, card after card, so a card's seasons
+// arrive together. Cards are grouped in the database *before* paging, so a
+// card is never split across pages. Card order: open before stale, then
+// freshest first (by the freshest season), unknown dates last. Within a
+// card, seasons come in the same order, so the first is the default.
 func (s *Store) Feed(ctx context.Context, q FeedQuery) ([]FeedListing, error) {
-	// The ORDER BY matches listings_feed_idx, so Postgres can walk the index
-	// in feed order and stop once it has a page of matching rows.
 	rows, err := s.db.Query(ctx, `
-		SELECT l.id, c.name, l.title, l.season, l.degree_level, l.status, l.posted_at, l.first_seen_at, l.feed_at,
+		WITH m AS (  -- every listing that matches the filters
+			SELECT l.id, `+groupKey+` AS gk, l.status, l.feed_at, l.posted_at
+			`+feedFilter+`
+		),
+		page AS (    -- one page of cards
+			SELECT gk, row_number() OVER (ORDER BY bool_and(status = 'stale'), max(feed_at) DESC NULLS LAST,
+			                                      max(posted_at) DESC NULLS LAST, max(id) DESC) AS pos
+			FROM m GROUP BY gk
+			ORDER BY pos
+			LIMIT $9 OFFSET $10
+		)
+		SELECT l.id, page.gk, c.name, l.title, l.season, l.degree_level, l.status, l.posted_at, l.first_seen_at, l.feed_at,
 		       ua.id, ua.stage, ua.interview_round,
 		       ARRAY(SELECT role FROM listing_roles WHERE listing_id = l.id),
 		       ARRAY(SELECT industry FROM company_industries WHERE company_id = l.company_id ORDER BY industry)
-		`+feedFilter+`
-		ORDER BY (l.status = 'stale'), l.feed_at DESC NULLS LAST, l.posted_at DESC NULLS LAST, l.id DESC
-		LIMIT $8 OFFSET $9`,
+		FROM page
+		JOIN m ON m.gk = page.gk
+		JOIN listings l ON l.id = m.id
+		JOIN companies c ON c.id = l.company_id
+		LEFT JOIN applications ua ON ua.listing_id = l.id AND ua.user_id = $6
+		ORDER BY page.pos, (l.status = 'stale'), l.feed_at DESC NULLS LAST, l.posted_at DESC NULLS LAST, l.id DESC`,
 		append(q.args(), q.Limit, q.Offset)...)
 	if err != nil {
 		return nil, fmt.Errorf("feed: %w", err)
 	}
 	listings, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (FeedListing, error) {
 		var l FeedListing
-		err := row.Scan(&l.ID, &l.Company, &l.Title, &l.Season, &l.DegreeLevel, &l.Status, &l.PostedAt, &l.FirstSeenAt,
-			&l.FeedAt, &l.ApplicationID, &l.Stage, &l.InterviewRound, &l.Roles, &l.Industries)
+		err := row.Scan(&l.ID, &l.GroupKey, &l.Company, &l.Title, &l.Season, &l.DegreeLevel, &l.Status, &l.PostedAt,
+			&l.FirstSeenAt, &l.FeedAt, &l.ApplicationID, &l.Stage, &l.InterviewRound, &l.Roles, &l.Industries)
 		return l, err
 	})
 	if err != nil {
@@ -166,11 +205,11 @@ func (s *Store) Feed(ctx context.Context, q FeedQuery) ([]FeedListing, error) {
 	return listings, nil
 }
 
-// CountFeed counts the listings matching q's filters, ignoring paging:
-// with OnlyNew set it is the "12 new" number.
+// CountFeed counts the cards (roles, all seasons together) matching q's
+// filters, ignoring paging: "312 roles match", or with OnlyNew, "12 new".
 func (s *Store) CountFeed(ctx context.Context, q FeedQuery) (int, error) {
 	var n int
-	err := s.db.QueryRow(ctx, `SELECT count(*) `+feedFilter, q.args()...).Scan(&n)
+	err := s.db.QueryRow(ctx, `SELECT count(DISTINCT `+groupKey+`) `+feedFilter, q.args()...).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count feed: %w", err)
 	}

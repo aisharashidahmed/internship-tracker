@@ -276,7 +276,7 @@ func TestNewSinceYouLastLooked(t *testing.T) {
 
 	// Logged out: no New badges, no count.
 	logged := newBrowserWithFeed(t, f, newFakeAccounts())
-	if _, page := logged.get("/"); strings.Contains(page, `chip new`) || !strings.Contains(page, "to see what") {
+	if _, page := logged.get("/"); strings.Contains(page, `chip new`) || !strings.Contains(page, "Log in</a> to track applications") {
 		t.Error("logged out: should show no New badges and a log-in hint")
 	}
 
@@ -286,7 +286,7 @@ func TestNewSinceYouLastLooked(t *testing.T) {
 
 	// First visit: the last 24 hours are new.
 	_, page := b.get("/")
-	if strings.Count(page, `class="chip new"`) != 1 || !strings.Contains(page, "<strong>1 new</strong>") {
+	if strings.Count(page, `class="chip new"`) != 1 || !strings.Contains(page, "<strong>1 new for you</strong>") {
 		t.Error("first visit: want exactly the fresh listing marked New, and '1 new'")
 	}
 	if _, page := b.get("/?new=1"); strings.Contains(page, "Older Intern") || !strings.Contains(page, "Fresh Intern") {
@@ -298,7 +298,7 @@ func TestNewSinceYouLastLooked(t *testing.T) {
 	if status != http.StatusSeeOther {
 		t.Fatalf("mark all as seen: status %d", status)
 	}
-	if _, page := b.get("/"); strings.Contains(page, `class="chip new"`) || !strings.Contains(page, "<strong>0 new</strong>") {
+	if _, page := b.get("/"); strings.Contains(page, `class="chip new"`) || !strings.Contains(page, "<strong>0 new for you</strong>") {
 		t.Error("after Mark all as seen, nothing should be New")
 	}
 }

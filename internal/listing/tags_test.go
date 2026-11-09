@@ -31,7 +31,18 @@ func TestRoles(t *testing.T) {
 		{"Product Operations Intern", "Product", nil},
 		// Simplify's mixed AI/ML/Data section: the title picks ML or Data.
 		{"Data Analyst Intern", "AI/ML/Data", []Role{Data}},
-		{"AI Research Scientist Intern", "AI/ML/Data", []Role{ML}},
+		{"AI Research Scientist Intern", "AI/ML/Data", []Role{AI}},
+		// ML-specific terms tag ML (the section no longer makes them Data).
+		{"Software Engineer Intern - SI Reinforcement Learning", "AI/ML/Data", []Role{ML}},
+		{"Deep Learning Intern", "", []Role{ML}},
+		{"Computer Vision Engineer Intern", "", []Role{ML}},
+		{"NLP Research Intern", "", []Role{ML}},
+		{"Generative AI Imaging Intern", "", []Role{ML}},
+		// "AI" alone is the AI tag, not ML.
+		{"Software Engineer - Internship - Sovereign AI Systems", "Software", []Role{AI}},
+		{"AI Automation & Revenue Ops Intern", "", []Role{AI}},
+		{"AI & Analytics Intern", "", []Role{AI, Data}},
+		{"Machine Learning Engineer Intern - AI Platform", "", []Role{ML}}, // ML wins; no extra AI chip
 		{"ML Data Scientist Intern", "AI/ML/Data", []Role{ML, Data}},
 		{"Research Intern", "AI/ML/Data", []Role{Data}},
 		// No signal: General SWE.
@@ -61,6 +72,8 @@ func TestRolesMustNotTag(t *testing.T) {
 		{"Quantum Computing Intern", Quant},              // quantum is not quant
 		{"Data Center Technician Intern", Data},          // data center is not data work
 		{"Software Engineer Intern - Data Platform", ML}, // data, not ML
+		{"Sovereign AI Systems Intern", ML},              // "AI" alone is not ML
+		{"Retail Maintenance Intern", AI},                // "ai" inside words is not AI
 	}
 	for _, tt := range tests {
 		if got := Roles(tt.title, ""); slices.Contains(got, tt.not) {

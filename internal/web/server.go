@@ -101,6 +101,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.feedPage)
 	mux.HandleFunc("GET /api/listings", s.feedJSON)
+	mux.HandleFunc("GET /api/count", s.countJSON)
 	mux.HandleFunc("GET /signup", s.signupPage)
 	mux.HandleFunc("POST /signup", s.signup)
 	mux.HandleFunc("GET /login", s.loginPage)
@@ -122,8 +123,9 @@ type Filters struct {
 	Roles       []listing.Role     `json:"roles"`
 	MatchAll    bool               `json:"match_all_roles"`
 	Industries  []listing.Industry `json:"industries"`
-	OnlyNew     bool               `json:"only_new"`     // only listings new since you last looked (logged in)
-	ShowApplied bool               `json:"show_applied"` // include listings you've applied to (logged in)
+	OnlyNew     bool               `json:"only_new"`         // only listings new since you last looked (logged in)
+	ShowApplied bool               `json:"show_applied"`     // include listings you've applied to (logged in)
+	Search      string             `json:"search,omitempty"` // company or title contains this
 }
 
 // jobTypes are the two tabs; the first is the default.
@@ -135,7 +137,10 @@ var jobTypeLabels = map[listing.JobType]string{listing.Internship: "Internships"
 // rejected: an old bookmark should still show something sensible.
 func parseFilters(q url.Values) Filters {
 	f := Filters{JobType: jobTypes[0], MatchAll: q.Get("match") == "all", OnlyNew: q.Get("new") == "1",
-		ShowApplied: q.Get("applied") == "1"}
+		ShowApplied: q.Get("applied") == "1", Search: strings.TrimSpace(q.Get("q"))}
+	if len(f.Search) > 100 {
+		f.Search = f.Search[:100] // nobody searches with a paragraph; keep queries cheap
+	}
 	if t := listing.JobType(q.Get("type")); slices.Contains(jobTypes, t) {
 		f.JobType = t
 	}
@@ -170,6 +175,9 @@ func (f Filters) query(page int) string {
 	if f.ShowApplied {
 		v.Set("applied", "1")
 	}
+	if f.Search != "" {
+		v.Set("q", f.Search)
+	}
 	if page > 1 {
 		v.Set("page", strconv.Itoa(page))
 	}
@@ -178,14 +186,15 @@ func (f Filters) query(page int) string {
 
 // Page is one page of the feed; it is also the JSON response body.
 type Page struct {
-	User     *store.User    `json:"-"`                   // for the header only
-	Loc      *time.Location `json:"-"`                   // the viewer's timezone, for showing times
-	NewSince *time.Time     `json:"new_since,omitempty"` // logged in only
-	NewCount int            `json:"new_count"`           // listings new since then, under these filters
-	Filters  Filters        `json:"filters"`
-	Page     int            `json:"page"`
-	NextPage int            `json:"next_page,omitempty"` // 0 (omitted) on the last page
-	Cards    []feed.Card    `json:"listings"`
+	User     *store.User     `json:"-"`                   // for the header only
+	Loc      *time.Location  `json:"-"`                   // the viewer's timezone, for showing times
+	NewSince *time.Time      `json:"new_since,omitempty"` // logged in only
+	NewCount int             `json:"new_count"`           // roles new since then, under these filters
+	Matching int             `json:"matching"`            // "312 roles match": cards under these filters
+	Filters  Filters         `json:"filters"`
+	Page     int             `json:"page"`
+	NextPage int             `json:"next_page,omitempty"` // 0 (omitted) on the last page
+	Cards    []feed.RoleCard `json:"roles"`               // one per role; seasons inside
 }
 
 // Option is one choice in the filter bar.
@@ -223,7 +232,8 @@ func (p Page) IndustryOptions() []Option {
 
 // Filtered reports whether any filter beyond the tab is on.
 func (p Page) Filtered() bool {
-	return len(p.Filters.Roles) > 0 || len(p.Filters.Industries) > 0 || p.Filters.OnlyNew || p.Filters.ShowApplied
+	return len(p.Filters.Roles) > 0 || len(p.Filters.Industries) > 0 || p.Filters.OnlyNew || p.Filters.ShowApplied ||
+		p.Filters.Search != ""
 }
 
 // HereURL is this page's own address, so "Mark all as seen" can come back.
@@ -243,7 +253,7 @@ func (s *Server) loadPage(r *http.Request, countsAsVisit bool) (Page, error) {
 	if err != nil || n < 1 {
 		n = 1
 	}
-	p := Page{User: currentUser(r), Loc: s.location(r), Filters: parseFilters(r.URL.Query()), Page: n, Cards: []feed.Card{}}
+	p := Page{User: currentUser(r), Loc: s.location(r), Filters: parseFilters(r.URL.Query()), Page: n, Cards: []feed.RoleCard{}}
 
 	if p.User != nil {
 		var since time.Time
@@ -270,14 +280,13 @@ func (s *Server) loadPage(r *http.Request, countsAsVisit bool) (Page, error) {
 		p.Filters.ShowApplied = false // nothing is "applied" when logged out
 	}
 
-	f := p.Filters
-	q := store.FeedQuery{
-		JobType: f.JobType, Roles: f.Roles, MatchAllRoles: f.MatchAll, Industries: f.Industries,
-		OnlyNew: f.OnlyNew, NewSince: p.NewSince, UserID: userID, ShowApplied: f.ShowApplied,
-		Limit: PageSize + 1, Offset: (n - 1) * PageSize, // one extra row: if it comes back, there's a next page
-	}
+	q := p.Filters.feedQuery(p.NewSince, userID)
+	q.Limit, q.Offset = PageSize+1, (n-1)*PageSize // one extra card: if it comes back, there's a next page
 	listings, err := s.feed.Feed(ctx, q)
 	if err != nil {
+		return Page{}, err
+	}
+	if p.Matching, err = s.feed.CountFeed(ctx, q); err != nil {
 		return Page{}, err
 	}
 	if p.NewSince != nil {
@@ -287,14 +296,42 @@ func (s *Server) loadPage(r *http.Request, countsAsVisit bool) (Page, error) {
 		}
 	}
 
-	if len(listings) > PageSize {
-		listings = listings[:PageSize]
+	p.Cards = feed.Group(listings, p.NewSince, time.Now(), p.Loc)
+	if len(p.Cards) > PageSize {
+		p.Cards = p.Cards[:PageSize]
 		p.NextPage = n + 1
 	}
-	for _, l := range listings {
-		p.Cards = append(p.Cards, feed.NewCard(l, p.NewSince))
-	}
 	return p, nil
+}
+
+// feedQuery turns the visitor's filters into a store query.
+func (f Filters) feedQuery(newSince *time.Time, userID int64) store.FeedQuery {
+	return store.FeedQuery{
+		JobType: f.JobType, Roles: f.Roles, MatchAllRoles: f.MatchAll, Industries: f.Industries,
+		OnlyNew: f.OnlyNew && newSince != nil, NewSince: newSince,
+		UserID: userID, ShowApplied: f.ShowApplied && userID != 0, Search: f.Search,
+	}
+}
+
+// countJSON answers "how many roles match these filters?" for the live
+// count in the filter panel, without building any cards.
+func (s *Server) countJSON(w http.ResponseWriter, r *http.Request) {
+	f := parseFilters(r.URL.Query())
+	var userID int64
+	var since *time.Time
+	if u := currentUser(r); u != nil {
+		userID = u.ID
+		if t, ok, err := s.accounts.FeedNewSince(r.Context(), u.ID); err == nil && ok {
+			since = &t
+		}
+	}
+	n, err := s.feed.CountFeed(r.Context(), f.feedQuery(since, userID))
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]int{"matching": n})
 }
 
 // markAllSeen handles the "Mark all as seen" button, then returns to the

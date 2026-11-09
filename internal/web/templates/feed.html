@@ -1,111 +1,292 @@
 {{template "head" "Internship feed"}}
+<style>
+  /* Feed layout: filters in a sidebar on wide screens; on phones they
+     live in a panel that slides up from a "Filters" button. */
+  .feed-head { display: grid; gap: 12px; margin-bottom: 18px; }
+  .feed-head h1 { font-size: 30px; margin: 0; letter-spacing: -0.01em; }
+  .feed-head h1 span { background: var(--sunset); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 28px; align-items: start; }
+
+  .filters { position: sticky; top: 16px; background: var(--surface); border: 1px solid var(--line);
+             border-radius: 22px; padding: 18px; box-shadow: var(--shadow); display: grid; gap: 18px; }
+  .sheet-head, .sheet-foot { display: none; }
+  .fgroup { display: grid; gap: 8px; }
+  .fgroup > .label { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .pick { position: relative; display: inline-flex; }
+  .pick input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .pick span { display: inline-flex; align-items: center; min-height: 36px; padding: 6px 13px; border-radius: 999px;
+               border: 1.5px solid var(--line); background: var(--surface); font-size: 14px; font-weight: 600; cursor: pointer; }
+  .pick input:checked + span { background: var(--coral); border-color: var(--coral); color: var(--on-coral); }
+  .pick input:focus-visible + span { outline: 3px solid var(--coral); outline-offset: 2px; }
+  .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--surface-2); border-radius: 14px; padding: 4px; }
+  .seg label { position: relative; }
+  .seg input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .seg span { display: flex; align-items: center; justify-content: center; min-height: 36px; border-radius: 11px;
+              font-weight: 700; font-size: 14px; color: var(--muted); cursor: pointer; }
+  .seg input:checked + span { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+  .seg input:focus-visible + span { outline: 3px solid var(--coral); }
+  .hint { color: var(--muted); font-size: 13px; }
+  .clear { font-size: 14px; font-weight: 600; }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 16px; }
+  .search { flex: 1 1 280px; position: relative; }
+  .search input { padding-left: 40px; background: var(--surface); }
+  .search::before { content: ""; position: absolute; left: 14px; top: 50%; width: 14px; height: 14px; margin-top: -9px;
+                    border: 2.5px solid var(--muted); border-radius: 50%; pointer-events: none; }
+  .search::after { content: ""; position: absolute; left: 27px; top: 50%; width: 7px; height: 2.5px; margin-top: 5px;
+                   background: var(--muted); transform: rotate(45deg); border-radius: 2px; pointer-events: none; }
+  .matching { font-weight: 700; }
+  .newbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 10px 14px; border-radius: 14px;
+            background: var(--surface-2); }
+  .newbar form { margin: 0; }
+  .open-filters { display: none; }
+  .scrim { display: none; } /* the phone panel's backdrop; never a grid item */
+
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .role { padding: 18px 18px 16px; display: flex; flex-direction: column; gap: 10px; }
+  .role.stale { opacity: .8; }
+  .role-top { display: flex; gap: 12px; align-items: flex-start; }
+  .avatar { flex: none; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+            font-weight: 800; font-size: 18px; }
+  .avatar.c0 { background: var(--a0); color: var(--at0); } .avatar.c1 { background: var(--a1); color: var(--at1); }
+  .avatar.c2 { background: var(--a2); color: var(--at2); } .avatar.c3 { background: var(--a3); color: var(--at3); }
+  .avatar.c4 { background: var(--a4); color: var(--at4); } .avatar.c5 { background: var(--a5); color: var(--at5); }
+  .avatar.c6 { background: var(--a6); color: var(--at6); } .avatar.c7 { background: var(--a7); color: var(--at7); }
+  .role .chips { gap: 6px; }
+
+  /* Season chips: one radio per season; the checked one's details show. */
+  .seasons { display: flex; flex-wrap: wrap; gap: 6px; }
+  .seasons label { position: relative; }
+  .seasons input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .seasons span { display: inline-flex; align-items: center; min-height: 32px; padding: 4px 12px; border-radius: 999px;
+                  border: 1.5px solid var(--line); font-size: 13px; font-weight: 700; cursor: pointer; color: var(--muted); }
+  .seasons input:checked + span { border-color: var(--plum); color: var(--plum); background: var(--surface-2); }
+  .seasons input:focus-visible + span { outline: 3px solid var(--coral); outline-offset: 2px; }
+  .season { display: none; gap: 10px; }
+  .role:has(.seasons input[value="0"]:checked) .season[data-i="0"],
+  .role:has(.seasons input[value="1"]:checked) .season[data-i="1"],
+  .role:has(.seasons input[value="2"]:checked) .season[data-i="2"],
+  .role:has(.seasons input[value="3"]:checked) .season[data-i="3"],
+  .role:has(.seasons input[value="4"]:checked) .season[data-i="4"],
+  .role:has(.seasons input[value="5"]:checked) .season[data-i="5"],
+  .role.single .season { display: grid; }
+  @supports not selector(:has(*)) { .season { display: grid; } } /* older browsers: show every season */
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .actions form { margin: 0; }
+  .note { color: var(--muted); font-size: 13px; }
+  details summary { cursor: pointer; color: var(--link); font-weight: 700; min-height: 40px; display: flex; align-items: center; }
+  details ul { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+  details li { display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; }
+  .pages { display: flex; justify-content: space-between; margin-top: 24px; font-weight: 700; }
+
+  @media (max-width: 1100px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+
+  /* Phones: one column; filters slide up from the bottom. */
+  @media (max-width: 800px) {
+    main { padding: 16px 16px 110px; }
+    .feed-head h1 { font-size: 26px; }
+    .layout { grid-template-columns: minmax(0, 1fr); }
+    .pick span, .seasons span, .seg span { min-height: 44px; }      /* 44px tap targets */
+    .btn, .btn-quiet, details summary { min-height: 44px; }
+    .js .filters { position: fixed; left: 0; right: 0; bottom: 0; top: auto; max-height: 85vh; overflow: auto;
+                   border-radius: 24px 24px 0 0; padding: 0 18px 18px; z-index: 20; transform: translateY(105%);
+                   transition: transform .25s ease; }
+    .js.filters-open .filters { transform: translateY(0); }
+    .js .sheet-head { display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0;
+                      background: var(--surface); padding: 16px 0 6px; z-index: 1; }
+    .js .sheet-head h2 { margin: 0; font-size: 20px; }
+    .js .sheet-foot { display: block; position: sticky; bottom: 0; background: var(--surface); padding-top: 10px; }
+    .js .sheet-foot .btn { width: 100%; min-height: 48px; }
+    .close { min-width: 44px; min-height: 44px; border: 0; border-radius: 50%; background: var(--surface-2);
+             color: var(--text); font-size: 22px; cursor: pointer; }
+    .js.filters-open .scrim { display: block; position: fixed; inset: 0; background: rgba(20, 10, 30, .45); z-index: 15; }
+    .js .open-filters { display: inline-flex; position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 10;
+                        box-shadow: 0 8px 24px rgba(0, 0, 0, .25); min-height: 48px; padding: 10px 22px; }
+    .js.filters-open .open-filters { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { .js .filters { transition: none; } }
+</style>
 {{template "header" .}}
 <main>
-  <h1>Internship feed</h1>
-  <p class="sub">Newest first, from Simplify and SpeedyApply, updated every hour.</p>
-
-  {{if .NewSince}}
-  <div class="newbar">
-    <span><strong>{{.NewCount}} new</strong> since {{since .NewSince .Loc}}</span>
-    {{if .NewCount}}<form method="post" action="/seen"><input type="hidden" name="back" value="{{.HereURL}}"><button class="linkbtn" type="submit">Mark all as seen</button></form>{{end}}
-  </div>
-  {{else if not .User}}
-  <p class="sub"><a href="/login">Log in</a> to see what's new since your last visit.</p>
-  {{end}}
-
-  <form class="filters" method="get" action="/" id="filters">
-    <div class="row">
-      <span class="row-label">Show</span>
-      <div class="seg" role="radiogroup" aria-label="Job type">
-        {{range .JobTypeOptions}}<label><input class="sr" type="radio" name="type" value="{{.Value}}"{{if .On}} checked{{end}}><span>{{.Label}}</span></label>{{end}}
-      </div>
-      {{if .NewSince}}<label class="pick"><input class="sr" type="checkbox" name="new" value="1"{{if .Filters.OnlyNew}} checked{{end}}><span>Only new</span></label>{{end}}
-      {{if .User}}<label class="pick"><input class="sr" type="checkbox" name="applied" value="1"{{if .Filters.ShowApplied}} checked{{end}}><span>Show applied</span></label>{{end}}
-      {{if .Filtered}}<a class="clear" href="{{.ClearURL}}">Clear filters</a>{{end}}
+  <div class="feed-head">
+    <h1>Find your <span>next role</span></h1>
+    {{if .NewSince}}
+    <div class="newbar">
+      <span><strong>{{.NewCount}} new for you</strong> since {{since .NewSince .Loc}}</span>
+      {{if .NewCount}}<form method="post" action="/seen"><input type="hidden" name="back" value="{{.HereURL}}"><button class="linkbtn" type="submit">Mark all as seen</button></form>{{end}}
     </div>
-
-    <div class="row">
-      <span class="row-label">Role</span>
-      {{range .RoleOptions}}<label class="pick"><input class="sr" type="checkbox" name="role" value="{{.Value}}"{{if .On}} checked{{end}}><span>{{.Label}}</span></label>{{end}}
-    </div>
-
-    <div class="row">
-      <span class="row-label">Roles match</span>
-      <div class="seg small-seg" role="radiogroup" aria-label="How to combine roles">
-        <label><input class="sr" type="radio" name="match" value="any"{{if not .Filters.MatchAll}} checked{{end}}><span>Any</span></label>
-        <label><input class="sr" type="radio" name="match" value="all"{{if .Filters.MatchAll}} checked{{end}}><span>All</span></label>
-      </div>
-      <span class="hint">Any: Backend / ML · All: Backend + ML</span>
-    </div>
-
-    <div class="row">
-      <span class="row-label">Industry</span>
-      {{range .IndustryOptions}}<label class="pick"><input class="sr" type="checkbox" name="industry" value="{{.Value}}"{{if .On}} checked{{end}}><span>{{.Label}}</span></label>{{end}}
-    </div>
-
-    <noscript><button type="submit">Apply filters</button></noscript>
-  </form>
-
-  {{range .Cards}}
-  <article class="card{{if .Stale}} stale{{end}}">
-    <h2 class="title">{{.Title}}</h2>
-    <div class="company">{{.Company}}</div>
-    <div class="meta">
-      <span>{{.Where}}</span>{{if .Season}}<span>{{.Season}}</span>{{end}}<span>{{if .PostedAt}}posted {{ago .PostedAt}}{{else}}first seen {{ago .FirstSeenAt}}{{end}}</span>
-    </div>
-    <div class="chips">
-      {{if .New}}<span class="chip new">New</span>{{end}}
-      {{if .StageLabel}}<a class="chip stage" href="/applications/{{.ApplicationID}}">{{.StageLabel}}</a>{{end}}
-      {{if .Stale}}<span class="chip warn">May be closed</span>{{end}}
-      {{range .Roles}}<span class="chip role">{{roleLabel .}}</span>{{end}}
-      {{range .Industries}}<span class="chip industry">{{industryLabel .}}</span>{{end}}
-      {{if .AdvancedDegreeOnly}}<span class="chip">Grad degree required</span>{{end}}
-    </div>
-
-    {{if eq (len .Links) 1}}
-      {{with index .Links 0}}
-      <div class="side">
-        <a class="btn" href="{{.URL}}" target="_blank" rel="noopener">Apply</a>
-        {{if .NotSeenSince}}<span class="note">not seen since {{(local .NotSeenSince $.Loc).Format "Jan 2"}}</span>{{end}}
-      </div>
-      {{end}}
-    {{else if .Links}}
-    <div class="side"><span class="note">{{.Openings}} openings</span></div>
-    <details>
-      <summary>Show all {{.Openings}} openings</summary>
-      <ul>
-        {{range .Links}}
-        <li><a href="{{.URL}}" target="_blank" rel="noopener">{{if .Cities}}{{range $i, $c := .Cities}}{{if $i}}; {{end}}{{$c}}{{end}}{{else}}Apply{{end}}</a>
-          <span class="via">via {{range $i, $s := .Sources}}{{if $i}} and {{end}}{{$s}}{{end}}{{if .NotSeenSince}} · not seen since {{(local .NotSeenSince $.Loc).Format "Jan 2"}}{{end}}</span></li>
-        {{end}}
-      </ul>
-    </details>
+    {{else if not .User}}
+    <p class="sub" style="margin:0"><a href="/login">Log in</a> to track applications and see what's new for you.</p>
     {{end}}
-    {{if $.User}}
-    <div class="card-actions" style="grid-column: 1 / -1">
-      {{if not .ApplicationID}}
-      <form method="post" action="/applications"><input type="hidden" name="listing_id" value="{{.ID}}"><input type="hidden" name="stage" value="saved"><input type="hidden" name="back" value="{{$.HereURL}}"><button class="btn-quiet" type="submit">Save</button></form>
-      {{end}}
-      {{if or (not .ApplicationID) (eq .Stage "saved")}}
-      <form method="post" action="/applications"><input type="hidden" name="listing_id" value="{{.ID}}"><input type="hidden" name="stage" value="applied"><button class="btn-quiet" type="submit">I applied</button></form>
-      {{end}}
-    </div>
-    {{end}}
-  </article>
-  {{else}}
-  <div class="empty">
-    {{if .Filtered}}No listings match these filters. <a href="{{.ClearURL}}">Clear filters</a>{{else}}No listings here yet. New ones are added every hour.{{end}}
   </div>
-  {{end}}
 
-  <nav class="pages">
-    <span>{{if gt .Page 1}}<a href="{{.PrevURL}}">← Newer</a>{{end}}</span>
-    <span>{{if .NextPage}}<a href="{{.NextURL}}">Older →</a>{{end}}</span>
-  </nav>
+  <div class="layout">
+    <form class="filters" method="get" action="/" id="filters" aria-label="Filters">
+      <div class="sheet-head"><h2>Filters</h2><button class="close" type="button" data-close aria-label="Close filters">×</button></div>
+
+      <div class="fgroup">
+        <div class="seg" role="radiogroup" aria-label="Job type">
+          {{range .JobTypeOptions}}<label><input type="radio" name="type" value="{{.Value}}"{{if .On}} checked{{end}}><span>{{.Label}}</span></label>{{end}}
+        </div>
+      </div>
+
+      {{if .User}}
+      <div class="fgroup">
+        <span class="label">Show</span>
+        <div class="chips">
+          {{if .NewSince}}<label class="pick"><input type="checkbox" name="new" value="1"{{if .Filters.OnlyNew}} checked{{end}}><span>Only new for you</span></label>{{end}}
+          <label class="pick"><input type="checkbox" name="applied" value="1"{{if .Filters.ShowApplied}} checked{{end}}><span>Show applied</span></label>
+        </div>
+      </div>
+      {{end}}
+
+      <div class="fgroup">
+        <span class="label">Role</span>
+        <div class="chips">
+          {{range .RoleOptions}}<label class="pick"><input type="checkbox" name="role" value="{{.Value}}"{{if .On}} checked{{end}}><span>{{.Label}}</span></label>{{end}}
+        </div>
+        <div class="seg" role="radiogroup" aria-label="How to combine roles">
+          <label><input type="radio" name="match" value="any"{{if not .Filters.MatchAll}} checked{{end}}><span>Any role</span></label>
+          <label><input type="radio" name="match" value="all"{{if .Filters.MatchAll}} checked{{end}}><span>All roles</span></label>
+        </div>
+        <span class="hint">Any: Backend / ML · All: Backend + ML</span>
+      </div>
+
+      <div class="fgroup">
+        <span class="label">Industry</span>
+        <div class="chips">
+          {{range .IndustryOptions}}<label class="pick"><input type="checkbox" name="industry" value="{{.Value}}"{{if .On}} checked{{end}}><span>{{.Label}}</span></label>{{end}}
+        </div>
+      </div>
+
+      {{if .Filtered}}<a class="clear" href="{{.ClearURL}}">Clear all filters</a>{{end}}
+      <noscript><button class="btn" type="submit">Apply filters</button></noscript>
+      <div class="sheet-foot"><button class="btn" type="submit"><span data-show-count>Show {{.Matching}} roles</span></button></div>
+    </form>
+    <div class="scrim" data-close></div>
+
+    <section aria-label="Roles">
+      <div class="toolbar">
+        <label class="search"><span class="visually-hidden">Search company or title</span>
+          <input type="search" name="q" form="filters" value="{{.Filters.Search}}" placeholder="Search company or title" autocomplete="off" enterkeyhint="search">
+        </label>
+        <span class="matching" aria-live="polite" data-count>{{.Matching}} {{if eq .Matching 1}}role matches{{else}}roles match{{end}}</span>
+      </div>
+
+      <div class="grid">
+      {{range $ci, $c := .Cards}}
+        <article class="card role{{if eq (len $c.Seasons) 1}} single{{end}}{{if (index $c.Seasons 0).Stale}} stale{{end}}">
+          <div class="role-top">
+            <div class="avatar c{{$c.Color}}" aria-hidden="true">{{$c.Initial}}</div>
+            <div>
+              <h2 class="title">{{$c.Title}}</h2>
+              <div class="company">{{$c.Company}}</div>
+            </div>
+          </div>
+
+          <div class="chips">
+            {{range $c.Roles}}<span class="chip role-{{.}}">{{roleLabel .}}</span>{{end}}
+            {{range $c.Industries}}<span class="chip industry-{{.}}">{{industryLabel .}}</span>{{end}}
+          </div>
+
+          {{if gt (len $c.Seasons) 1}}
+          <div class="seasons" role="radiogroup" aria-label="Season">
+            {{range $si, $s := $c.Seasons}}<label><input type="radio" name="season-{{$ci}}" value="{{$si}}"{{if eq $si 0}} checked{{end}}><span>{{if $s.Season}}{{$s.Season}}{{else}}Season unknown{{end}}</span></label>{{end}}
+          </div>
+          {{end}}
+
+          {{range $si, $s := $c.Seasons}}
+          <div class="season" data-i="{{$si}}">
+            <div class="meta"><span>{{$s.Where}}</span>{{if and $s.Season (eq (len $c.Seasons) 1)}}<span>{{$s.Season}}</span>{{end}}<span>{{if $s.PostedAt}}posted {{ago $s.PostedAt}}{{else}}first seen {{ago $s.FirstSeenAt}}{{end}}</span></div>
+            {{if or $s.PostedToday $s.New $s.StageLabel $s.Stale $s.AdvancedDegreeOnly}}
+            <div class="chips">
+              {{if $s.PostedToday}}<span class="chip today">Posted today</span>{{end}}
+              {{if $s.New}}<span class="chip new">New for you</span>{{end}}
+              {{if $s.StageLabel}}<a class="chip stage" href="/applications/{{$s.ApplicationID}}">{{$s.StageLabel}}</a>{{end}}
+              {{if $s.Stale}}<span class="chip warn">May be closed</span>{{end}}
+              {{if $s.AdvancedDegreeOnly}}<span class="chip plain">Grad degree required</span>{{end}}
+            </div>
+            {{end}}
+            <div class="actions">
+              {{if eq (len $s.Links) 1}}{{with index $s.Links 0}}<a class="btn" href="{{.URL}}" target="_blank" rel="noopener">Apply</a>{{end}}{{end}}
+              {{if $.User}}
+                {{if not $s.ApplicationID}}<form method="post" action="/applications"><input type="hidden" name="listing_id" value="{{$s.ID}}"><input type="hidden" name="stage" value="saved"><input type="hidden" name="back" value="{{$.HereURL}}"><button class="btn-quiet" type="submit">Save</button></form>{{end}}
+                {{if or (not $s.ApplicationID) (eq $s.Stage "saved")}}<form method="post" action="/applications"><input type="hidden" name="listing_id" value="{{$s.ID}}"><input type="hidden" name="stage" value="applied"><button class="btn-quiet" type="submit">I applied</button></form>{{end}}
+              {{end}}
+            </div>
+            {{if gt (len $s.Links) 1}}
+            <details>
+              <summary>Apply: {{$s.Openings}} openings</summary>
+              <ul>
+                {{range $s.Links}}
+                <li><a href="{{.URL}}" target="_blank" rel="noopener">{{if .Cities}}{{range $i, $x := .Cities}}{{if $i}}; {{end}}{{$x}}{{end}}{{else}}Apply{{end}}</a>
+                  <span class="note">via {{range $i, $x := .Sources}}{{if $i}} and {{end}}{{$x}}{{end}}{{if .NotSeenSince}} · not seen since {{(local .NotSeenSince $.Loc).Format "Jan 2"}}{{end}}</span></li>
+                {{end}}
+              </ul>
+            </details>
+            {{else if eq (len $s.Links) 1}}{{with index $s.Links 0}}{{if .NotSeenSince}}<span class="note">not seen since {{(local .NotSeenSince $.Loc).Format "Jan 2"}}</span>{{end}}{{end}}{{end}}
+          </div>
+          {{end}}
+        </article>
+      {{else}}
+        <div class="empty" style="grid-column: 1 / -1">
+          {{if .Filtered}}No roles match these filters. <a href="{{.ClearURL}}">Clear filters</a>{{else}}No roles here yet. New ones are added every hour.{{end}}
+        </div>
+      {{end}}
+      </div>
+
+      <nav class="pages" aria-label="Pages">
+        <span>{{if gt .Page 1}}<a href="{{.PrevURL}}">← Newer</a>{{end}}</span>
+        <span>{{if .NextPage}}<a href="{{.NextURL}}">Older →</a>{{end}}</span>
+      </nav>
+    </section>
+  </div>
+  <button class="btn open-filters" type="button" data-open aria-controls="filters"><span>Filters · <span data-show-count-short>{{.Matching}}</span></span></button>
 </main>
 <script>
-  // Apply filters as soon as one changes. Without JavaScript, the
-  // "Apply filters" button above does the same.
-  document.getElementById("filters").addEventListener("change", e => e.currentTarget.submit());
+(() => {
+  const form = document.getElementById("filters");
+  const root = document.documentElement;
+  const phone = window.matchMedia("(max-width: 800px)");
+  const words = n => n === 1 ? "role matches" : "roles match";
+
+  // The live count: ask the server how many roles match the current
+  // filters and search, and show it, without reloading the page.
+  let timer, latest = 0;
+  function updateCount() {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const ask = ++latest;
+      const params = new URLSearchParams(new FormData(form));
+      try {
+        const res = await fetch("/api/count?" + params);
+        const { matching } = await res.json();
+        if (ask !== latest) return; // a newer question is on its way
+        document.querySelectorAll("[data-count]").forEach(el => el.textContent = `${matching} ${words(matching)}`);
+        document.querySelectorAll("[data-show-count]").forEach(el => el.textContent = `Show ${matching} roles`);
+        document.querySelectorAll("[data-show-count-short]").forEach(el => el.textContent = matching);
+      } catch (e) { /* offline: the count just doesn't update */ }
+    }, 200);
+  }
+
+  // Desktop: a filter change applies at once. Phone: it only updates the
+  // count; "Show N roles" applies them all together.
+  form.addEventListener("change", e => {
+    if (e.target.name === "q") return;          // search: Enter applies it
+    phone.matches ? updateCount() : form.submit();
+  });
+  // Typing in search updates the count; Enter shows the results.
+  document.querySelector('input[name="q"]').addEventListener("input", updateCount);
+
+  // The phone filter panel.
+  const open = () => { root.classList.add("filters-open"); form.querySelector("input").focus(); };
+  const close = () => root.classList.remove("filters-open");
+  document.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", open));
+  document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", close));
+  document.addEventListener("keydown", e => { if (e.key === "Escape") close(); });
+  if (location.hash === "#filters") open();
+})();
 </script>
 {{template "foot"}}

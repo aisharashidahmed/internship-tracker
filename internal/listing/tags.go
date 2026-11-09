@@ -12,22 +12,25 @@ import (
 type Role string
 
 const (
-	Backend    Role = "backend"
-	Frontend   Role = "frontend"
-	ML         Role = "ml"
-	Data       Role = "data"
-	PM         Role = "pm"
-	Quant      Role = "quant"
-	Hardware   Role = "hardware"
+	Backend  Role = "backend"
+	Frontend Role = "frontend"
+	ML       Role = "ml"
+	Data     Role = "data"
+	PM       Role = "pm"
+	Quant    Role = "quant"
+	Hardware Role = "hardware"
+	// AI: the title mentions AI but no ML-specific term ("AI Automation &
+	// Revenue Ops"). Kept apart from ML so ML stays precise (decided 2026-11-08).
+	AI         Role = "ai"
 	GeneralSWE Role = "general_swe" // only when nothing more specific applies
 )
 
 // AllRoles lists every role, in the order the filter bar shows them.
-var AllRoles = []Role{GeneralSWE, Backend, Frontend, ML, Data, PM, Quant, Hardware}
+var AllRoles = []Role{GeneralSWE, Backend, Frontend, ML, AI, Data, PM, Quant, Hardware}
 
 // RoleLabels are the names people see.
 var RoleLabels = map[Role]string{
-	GeneralSWE: "General SWE", Backend: "Backend", Frontend: "Frontend", ML: "ML",
+	GeneralSWE: "General SWE", Backend: "Backend", Frontend: "Frontend", ML: "ML", AI: "AI",
 	Data: "Data", PM: "PM", Quant: "Quant", Hardware: "Hardware",
 }
 
@@ -61,12 +64,17 @@ var titleRoles = []struct {
 }{
 	{Backend, words(`backend|back end|full ?stack`)},
 	{Frontend, words(`frontend|front end|full ?stack|ui engineer|web developer`)},
-	{ML, words(`machine learning|ml|ai|artificial intelligence|deep learning|computer vision|nlp|llms?|mlops|genai`)},
+	// ML needs an ML-specific term; "AI" alone is the AI tag (below).
+	{ML, words(`machine learning|ml|deep learning|reinforcement learning|computer vision|nlp|natural language processing|llms?|large language models?|mlops|genai|generative ai|neural networks?`)},
 	{Data, words(`data (?:analyst|analysts|analytics|science|scientist|scientists|engineer|engineering)|business intelligence|analytics`)},
 	{PM, words(`product manager|product management|apm|associate product manager|technical product manager`)},
 	{Quant, words(`quant|quantitative|quants`)},
 	{Hardware, words(`hardware|electrical|asic|fpga|pcb|analog|circuit|silicon|rf engineer|mechanical`)},
 }
+
+// aiWord is "AI" as a word ("ai engineer", "applied ai"), not inside
+// another word ("retail", "maintain").
+var aiWord = words(`ai|artificial intelligence|agentic`)
 
 // words compiles a whole-word pattern: "ml" matches "ml engineer", never "html".
 func words(alternatives string) *regexp.Regexp {
@@ -102,7 +110,11 @@ func Roles(title, section string) []Role {
 	// In the AI/ML/Data section with no ML or data word in the title
 	// ("Research Intern"), the section still says it's data or ML work.
 	// Data is the safer of the two: it doesn't claim ML engineering.
-	if sec == aiMLDataSection && !slices.Contains(roles, ML) && !slices.Contains(roles, Data) {
+	// "AI" without an ML term: the AI tag, never ML.
+	if !slices.Contains(roles, ML) && aiWord.MatchString(t) {
+		add(AI)
+	}
+	if sec == aiMLDataSection && !slices.Contains(roles, ML) && !slices.Contains(roles, Data) && !slices.Contains(roles, AI) {
 		add(Data)
 	}
 	if len(roles) == 0 && sec != productSection {

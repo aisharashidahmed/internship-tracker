@@ -45,6 +45,10 @@ func (s *Store) SaveListing(ctx context.Context, sourceID int64, l listing.Listi
 	if err := s.notePostedAt(ctx, listingID, l.PostedAt); err != nil {
 		return "", err
 	}
+	if _, err := s.db.Exec(ctx,
+		`UPDATE listings SET role_key = $2 WHERE id = $1 AND role_key IS DISTINCT FROM $2`, listingID, l.RoleKey); err != nil {
+		return "", fmt.Errorf("set role key of listing %d: %w", listingID, err)
+	}
 
 	postingsChanged := false
 	for _, p := range l.Postings {

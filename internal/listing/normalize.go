@@ -249,6 +249,15 @@ func NormalizeLocations(locs []string) []string {
 // same listing: company + title + job type + season.
 //
 //	"stripe|software engineer intern|internship|summer 2027"
+//
+// RoleKey is the dedupe key without the season: the same role at the same
+// company in any season. The feed groups a role's seasons into one card by it.
+//
+//	"stripe|software engineer intern|internship"
+func RoleKey(p Posting) string {
+	return strings.Join([]string{NormalizeCompany(p.Company), NormalizeTitle(p), string(p.JobType)}, "|")
+}
+
 func DedupeKey(p Posting) string {
 	return strings.Join([]string{
 		NormalizeCompany(p.Company),

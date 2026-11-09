@@ -1113,9 +1113,9 @@ func TestFeed_HidesWhatYouAppliedTo(t *testing.T) {
 	ctx := context.Background()
 	uid, other := newUser(t, s, "a@b.co"), newUser(t, s, "b@b.co")
 	applied, saved := aListing(t, s), func() int64 {
-		fall := simplifyFigma
-		fall.Season, fall.SourceListingID = "Fall 2027", "s2"
-		saveFrom(t, s, "simplify", fall)
+		other := simplifyFigma // a different role, so it's its own card
+		other.Title, other.SourceListingID, other.ApplyURL = "Product Design Intern", "s2", "https://figma.com/careers"
+		saveFrom(t, s, "simplify", other)
 		return scalar[int64](t, s, `SELECT max(id) FROM listings`)
 	}()
 	s.StartApplication(ctx, uid, applied, StageApplied, time.Now())
@@ -1276,7 +1276,12 @@ func TestLinkCheck_AliveResetsTheCount(t *testing.T) {
 func TestLinkCheck_AnotherWorkingLinkKeepsItOpen(t *testing.T) {
 	s := newTestStore(t)
 	saveFrom(t, s, "simplify", simplifyFigma)
-	saveFrom(t, s, "speedyapply", speedyPosting("Software Engineer Intern", "https://jobs.ashbyhq.com/figma/3fba1c39-c5cb-47d7-9ad2-1cec4d7e9d0c"))
+	other := speedyPosting("Software Engineer Intern", "https://jobs.ashbyhq.com/figma/3fba1c39-c5cb-47d7-9ad2-1cec4d7e9d0c")
+	other.Season = "Summer 2027" // same key as the Simplify posting, so the same listing
+	saveFrom(t, s, "speedyapply", other)
+	if n := scalar[int](t, s, `SELECT count(*) FROM listings`); n != 1 {
+		t.Fatalf("listings = %d; the test needs both postings on one listing", n)
+	}
 	id := postingID(t, s, "simplify")
 	for range DeadAfter {
 		check(t, s, id, LinkDead)
@@ -1336,5 +1341,67 @@ func TestDB_ClosedReasonMatchesStatus(t *testing.T) {
 	saveFrom(t, s, "simplify", simplifyFigma)
 	if err := exec(t, s, `UPDATE listings SET closed_reason = 'link'`); err == nil {
 		t.Error("an open listing with a closed reason was accepted")
+	}
+}
+
+// --- Slice 11: seasons grouped into one card, search ---
+
+func TestFeed_GroupsSeasonsBeforePaging(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	add := func(title, season string, daysAgo int) {
+		t.Helper()
+		p := listing.Posting{SourceListingID: title + season, Company: "Tesla", Title: title, JobType: listing.Internship,
+			Season: season, ApplyURL: "https://tesla.com/careers", Active: true, PostedAt: time.Now().AddDate(0, 0, -daysAgo)}
+		l := listing.Group([]listing.Posting{p})[0]
+		simplifyID := scalar[int64](t, s, `SELECT id FROM sources WHERE name = 'simplify'`)
+		if _, err := s.SaveListing(ctx, simplifyID, l, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add("Software Engineer Intern", "Summer 2027", 1)
+	add("Software Engineer Intern", "Spring 2027", 3)
+	add("Software Engineer Intern", "Winter 2027", 9)
+	add("Data Intern", "Summer 2027", 2)
+
+	q := FeedQuery{JobType: listing.Internship, Limit: 1}
+	page1, _ := s.Feed(ctx, q)
+	if len(page1) != 3 || page1[0].Season != "Summer 2027" || page1[0].GroupKey != page1[2].GroupKey {
+		t.Fatalf("page 1 should be the whole Tesla SWE card, newest season first; got %d listings", len(page1))
+	}
+	q.Offset = 1
+	page2, _ := s.Feed(ctx, q)
+	if len(page2) != 1 || page2[0].Title != "Data Intern" {
+		t.Errorf("page 2 should be the Data Intern card, got %d listings", len(page2))
+	}
+	if n, _ := s.CountFeed(ctx, FeedQuery{JobType: listing.Internship}); n != 2 {
+		t.Errorf("count = %d, want 2 cards (not 4 listings)", n)
+	}
+	if n := scalar[int](t, s, `SELECT count(*) FROM listings`); n != 4 {
+		t.Errorf("listings = %d; grouping must not merge them", n)
+	}
+}
+
+func TestFeed_Search(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	saveFrom(t, s, "simplify", simplifyFigma) // Figma, Software Engineer Intern
+	odd := simplifyFigma
+	odd.Company, odd.Title, odd.SourceListingID, odd.ApplyURL = "100% Labs", "Growth_Intern", "o", "https://x.com/careers"
+	saveFrom(t, s, "simplify", odd)
+
+	count := func(search string) int {
+		t.Helper()
+		n, err := s.CountFeed(ctx, FeedQuery{JobType: listing.Internship, Search: search})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	tests := map[string]int{"figma": 1, "SOFTWARE eng": 1, "100%": 1, "100": 1, "%": 1, "growth_": 1, "_": 1, "": 2, "nothing like this": 0}
+	for q, want := range tests {
+		if got := count(q); got != want {
+			t.Errorf("search %q matched %d, want %d", q, got, want)
+		}
 	}
 }

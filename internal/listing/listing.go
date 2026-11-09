@@ -42,6 +42,7 @@ type Posting struct {
 // Listing is one real job: all postings that share a dedupe key.
 type Listing struct {
 	Key         string
+	RoleKey     string // Key without the season, for grouping seasons in the feed
 	Company     string // display name, from the first posting
 	Title       string // display title, from the first posting
 	JobType     JobType
@@ -77,6 +78,7 @@ func Group(postings []Posting) []Listing {
 			indexByKey[key] = len(listings)
 			listings = append(listings, Listing{
 				Key:         key,
+				RoleKey:     RoleKey(p),
 				Company:     p.Company,
 				Title:       p.Title,
 				JobType:     p.JobType,
