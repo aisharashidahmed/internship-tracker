@@ -134,3 +134,19 @@ func TestRulesVersion(t *testing.T) {
 		t.Errorf("RulesVersion = %q; want a 12-character fingerprint of the rule files", RulesVersion)
 	}
 }
+
+func TestSeasonsFromTitle(t *testing.T) {
+	tests := map[string][]string{
+		"Field-Deployed Software Engineering Intern - Fall 2026 / Spring 2027": {"Fall 2026", "Spring 2027"},
+		"Fullstack Engineering Internship - Fall 2026 & Winter 2027":           {"Fall 2026", "Winter 2027"},
+		"Undergrad Software Engineering Intern - Grad Year: Spring 2028":       nil, // graduation, not the internship
+		"Software Intern (Class of Summer 2028)":                               nil,
+		"Software Engineer Intern - Summer 2027":                               {"Summer 2027"},
+		"Summer Analyst Intern":                                                nil,
+	}
+	for title, want := range tests {
+		if got := SeasonsFromTitle(title); !slices.Equal(got, want) {
+			t.Errorf("SeasonsFromTitle(%q) = %q, want %q", title, got, want)
+		}
+	}
+}

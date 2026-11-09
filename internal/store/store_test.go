@@ -15,6 +15,7 @@ import (
 
 	"internship-tracker/internal/db"
 	"internship-tracker/internal/listing"
+	"internship-tracker/internal/source/speedyapply"
 )
 
 // These tests need a real Postgres. They use $TEST_DATABASE_URL, or the local
@@ -1509,5 +1510,66 @@ func TestSyncTopCompanies(t *testing.T) {
 	}
 	if n, _ := s.CountFeed(ctx, FeedQuery{JobType: listing.Internship}); n != 2 {
 		t.Errorf("without the filter: %d, want 2", n)
+	}
+}
+
+// --- Data completeness: a SpeedyApply FAANG+ row, file to feed ---
+
+// A row like the ones in SpeedyApply's FAANG+ table: a Salary column, a
+// country-only location, no season in the title, and a job-specific link.
+const faangTable = `### FAANG+
+
+<!-- TABLE_FAANG_START -->
+| Company | Position | Location | Salary | Posting | Age |
+|---|---|---|---|---|---|
+| <a href="https://www.apple.com"><strong>Apple</strong></a> | Software Undergrad Engineering Internships | USA | $50/hr | <a href="https://jobs.apple.com/en-us/details/200612345/software-undergrad-engineering-internships"><img src="https://i.imgur.com/JpkfjIq.png" alt="Apply" width="70"/></a> | 3d |
+| <a href="https://www.gitai.tech"><strong>GITAI</strong></a> | Field-Deployed Software Engineering Intern - Fall 2026 / Spring 2027 | Torrance, CA | $40/hr | <a href="https://jobs.lever.co/gitai/3fba1c39-c5cb-47d7-9ad2-1cec4d7e9d0c"><img src="x" alt="Apply"/></a> | 5d |
+| <a href="https://www.twitch.tv"><strong>Twitch</strong></a> | Undergrad Software Engineering Intern - Grad Year: Spring 2028 | San Francisco, CA | $55/hr | <a href="https://www.twitch.tv/jobs/careers/7654321/"><img src="x" alt="Apply"/></a> | 2d |
+<!-- TABLE_FAANG_END -->
+`
+
+func TestPipeline_FAANGRowReachesTheFeed(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// 1) parse
+	postings, err := speedyapply.Adapter{}.Parse([]byte(faangTable))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 2) the 2027 filter the ingester applies: keep 2027 and unknown seasons
+	var kept []listing.Posting
+	for _, p := range postings {
+		if p.Season == "" || strings.HasSuffix(p.Season, "2027") {
+			kept = append(kept, p)
+		}
+	}
+	if len(kept) != 3 {
+		t.Fatalf("kept %d postings, want 3: Apple (season unknown), GITAI Spring 2027 (its Fall 2026 copy dropped), Twitch (2028 is a grad year)", len(kept))
+	}
+	// 3) store
+	saveFrom(t, s, "speedyapply", kept...)
+	// 4) shown: search finds each, and they're top companies via the FAANG+ section
+	var top []string
+	for _, p := range kept {
+		if p.TopCompany {
+			top = append(top, p.Company)
+		}
+	}
+	if _, err := s.SyncTopCompanies(ctx, "speedyapply-faang", top); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{"apple", "gitai", "twitch"} {
+		feed, err := s.Feed(ctx, FeedQuery{JobType: listing.Internship, Search: q, Limit: 10})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(feed) != 1 || !feed[0].TopCompany {
+			t.Errorf("search %q: %d cards (top=%v), want 1 top-company card", q, len(feed), len(feed) == 1 && feed[0].TopCompany)
+		}
+	}
+	apple, _ := s.Feed(ctx, FeedQuery{JobType: listing.Internship, Search: "apple", Limit: 10})
+	if len(apple) == 1 && (apple[0].Season != "" || len(apple[0].Postings) != 1 || apple[0].Postings[0].Locations[0] != "USA") {
+		t.Errorf("Apple card = season %q postings %+v", apple[0].Season, apple[0].Postings)
 	}
 }

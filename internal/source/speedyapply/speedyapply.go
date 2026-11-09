@@ -73,7 +73,17 @@ func (a Adapter) Parse(body []byte) ([]listing.Posting, error) {
 			if err != nil {
 				return nil, fmt.Errorf("speedyapply: line %d: %w", n+1, err)
 			}
-			postings = append(postings, p)
+			// A title can name several seasons ("Fall 2026 / Spring 2027"):
+			// one posting per season, as Simplify does for multi-term jobs,
+			// so the 2027 one isn't lost when the year filter drops 2026.
+			seasons := listing.SeasonsFromTitle(p.Title)
+			if len(seasons) == 0 {
+				seasons = []string{""} // the title doesn't say: unknown season
+			}
+			for _, season := range seasons {
+				p.Season = season
+				postings = append(postings, p)
+			}
 		}
 	}
 	return postings, nil

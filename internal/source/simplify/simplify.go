@@ -5,6 +5,7 @@ package simplify
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"time"
 
 	"internship-tracker/internal/listing"
@@ -48,7 +49,7 @@ func (Adapter) Parse(body []byte) ([]listing.Posting, error) {
 		if !r.IsVisible { // hidden by Simplify's moderators
 			continue
 		}
-		for _, term := range r.Terms {
+		for _, term := range seasons(r.Terms) {
 			postings = append(postings, listing.Posting{
 				SourceListingID: r.ID,
 				Company:         r.Company,
@@ -74,6 +75,26 @@ func postedAt(unix int64) time.Time {
 	}
 	return time.Unix(unix, 0).UTC()
 }
+
+// seasons cleans a record's terms. Simplify writes "N/A" when it doesn't
+// know the season: that is an unknown season (""), kept and never guessed,
+// not a season for the year filter to drop. If the record also names real
+// seasons, those are enough and the "N/A" adds nothing.
+func seasons(terms []string) []string {
+	var known []string
+	for _, t := range terms {
+		if hasYear.MatchString(t) {
+			known = append(known, t)
+		}
+	}
+	if len(known) == 0 && len(terms) > 0 {
+		return []string{""}
+	}
+	return known
+}
+
+// hasYear: a term like "Summer 2027" names a year; "N/A" doesn't.
+var hasYear = regexp.MustCompile(`\b20\d{2}\b`)
 
 // degreeLevel: a role is open to bachelor's students if it lists
 // "Bachelor's" or lists no degree requirement at all.

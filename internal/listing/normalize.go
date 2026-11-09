@@ -2,6 +2,7 @@ package listing
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -97,19 +98,49 @@ func stripSeason(title, season string) string {
 // season field: "SWE Intern - Summer 2027" -> "Summer 2027". It returns ""
 // unless the title names both a season and a year; it never guesses.
 func SeasonFromTitle(title string) string {
-	for _, m := range seasonWords.FindAllStringSubmatch(fold(title), -1) {
-		name := seasonName(m[1] + m[2])
-		year := yearDigits.FindString(m[0])
-		if name == "" {
-			continue // a bare year says nothing about the season
-		}
-		if len(year) == 2 {
-			year = "20" + year
-		}
-		return strings.ToUpper(name[:1]) + name[1:] + " " + year
+	if all := SeasonsFromTitle(title); len(all) > 0 {
+		return all[0]
 	}
 	return ""
 }
+
+// SeasonsFromTitle reads every season a title names, in order:
+// "Fall 2026 / Spring 2027" -> ["Fall 2026", "Spring 2027"]. A season after
+// "grad year", "graduation", "class of" etc. is the student's graduation
+// date, not the internship's, so it doesn't count:
+// "Undergrad Intern - Grad Year: Spring 2028" -> none.
+func SeasonsFromTitle(title string) []string {
+	t := fold(title)
+	var out []string
+	for _, loc := range seasonWords.FindAllStringSubmatchIndex(t, -1) {
+		m := make([]string, 3)
+		for i := range m {
+			if loc[2*i] >= 0 {
+				m[i] = t[loc[2*i]:loc[2*i+1]]
+			}
+		}
+		name := seasonName(m[1] + m[2])
+		if name == "" {
+			continue // a bare year says nothing about the season
+		}
+		if graduationContext.MatchString(t[max(0, loc[0]-30):loc[0]]) {
+			continue // "grad year: spring 2028" describes the student
+		}
+		year := yearDigits.FindString(m[0])
+		if len(year) == 2 {
+			year = "20" + year
+		}
+		season := strings.ToUpper(name[:1]) + name[1:] + " " + year
+		if !slices.Contains(out, season) {
+			out = append(out, season)
+		}
+	}
+	return out
+}
+
+// graduationContext: words just before a season that make it a graduation
+// date ("grad year", "graduation", "graduating", "class of", "grad date").
+var graduationContext = regexp.MustCompile(`\b(?:grad(?:uation|uating)?\s*(?:year|date|term)?|class of)\s*$`)
 
 // yearDigits finds the year inside a season phrase ("summer 27" -> "27").
 var yearDigits = regexp.MustCompile(`\d+`)

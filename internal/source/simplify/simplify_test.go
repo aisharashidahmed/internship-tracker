@@ -2,6 +2,7 @@ package simplify
 
 import (
 	"os"
+	"slices"
 	"testing"
 
 	"internship-tracker/internal/listing"
@@ -38,5 +39,20 @@ func TestParse(t *testing.T) {
 func TestParseRejectsBadJSON(t *testing.T) {
 	if _, err := (Adapter{}).Parse([]byte("<html>rate limited</html>")); err == nil {
 		t.Error("expected an error for a non-JSON body")
+	}
+}
+
+func TestSeasons_NAIsUnknownNotDropped(t *testing.T) {
+	tests := []struct {
+		in, want []string
+	}{
+		{[]string{"N/A"}, []string{""}},                           // unknown: kept as ""
+		{[]string{"N/A", "Summer 2027"}, []string{"Summer 2027"}}, // a real season is enough
+		{[]string{"Summer 2027", "Fall 2027"}, []string{"Summer 2027", "Fall 2027"}},
+	}
+	for _, tt := range tests {
+		if got := seasons(tt.in); !slices.Equal(got, tt.want) {
+			t.Errorf("seasons(%q) = %q, want %q", tt.in, got, tt.want)
+		}
 	}
 }
