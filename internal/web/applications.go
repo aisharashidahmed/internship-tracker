@@ -91,6 +91,7 @@ type AppRow struct {
 // ApplicationsPage is the data for My applications.
 type ApplicationsPage struct {
 	User   *store.User
+	Nav    *Nav
 	Loc    *time.Location
 	Total  int
 	Groups []StageGroup
@@ -106,7 +107,7 @@ func (s *Server) applicationsPage(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	page := ApplicationsPage{User: u, Loc: s.location(r), Total: len(apps)}
+	page := ApplicationsPage{User: u, Nav: s.nav(r), Loc: s.location(r), Total: len(apps)}
 	for _, stage := range store.Stages {
 		g := StageGroup{Label: store.StageLabels[stage]}
 		for _, a := range apps {
@@ -124,6 +125,7 @@ func (s *Server) applicationsPage(w http.ResponseWriter, r *http.Request) {
 // ApplicationPage is the data for one application.
 type ApplicationPage struct {
 	User       *store.User
+	Nav        *Nav
 	Loc        *time.Location
 	App        store.Application
 	StageLabel string
@@ -174,7 +176,7 @@ func (s *Server) showApplication(w http.ResponseWriter, r *http.Request, status 
 		return
 	}
 
-	page := ApplicationPage{User: u, Loc: s.location(r), App: app, StageLabel: feed.StageLabel(app.Stage, app.InterviewRound),
+	page := ApplicationPage{User: u, Nav: s.nav(r), Loc: s.location(r), App: app, StageLabel: feed.StageLabel(app.Stage, app.InterviewRound),
 		Resumes: resumes, Error: errMsg}
 	for _, e := range events {
 		label := feed.StageLabel(e.To, e.InterviewRound)

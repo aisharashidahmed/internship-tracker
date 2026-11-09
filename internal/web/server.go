@@ -44,6 +44,7 @@ type Server struct {
 	feed          FeedReader
 	accounts      Accounts
 	tracker       Tracker
+	stars         Stars
 	tmpl          *template.Template
 	secureCookies bool           // set when served over HTTPS behind a proxy
 	trustProxy    bool           // read the visitor's IP from X-Forwarded-For
@@ -69,7 +70,7 @@ type Options struct {
 
 // New parses the templates once, at startup, so a broken template fails
 // immediately instead of on the first request.
-func New(f FeedReader, accounts Accounts, tracker Tracker, opts Options) (*Server, error) {
+func New(f FeedReader, accounts Accounts, tracker Tracker, stars Stars, opts Options) (*Server, error) {
 	tmpl, err := template.New("").Funcs(template.FuncMap{
 		"ago": func(t time.Time) string { return ago(t, time.Now()) },
 		// local shows a time in the viewer's timezone: {{(local .At $.Loc).Format "Jan 2"}}
@@ -92,7 +93,7 @@ func New(f FeedReader, accounts Accounts, tracker Tracker, opts Options) (*Serve
 	}
 	return &Server{
 		defaultLoc: defaultLoc,
-		feed:       f, accounts: accounts, tracker: tracker, tmpl: tmpl, secureCookies: opts.SecureCookies,
+		feed:       f, accounts: accounts, tracker: tracker, stars: stars, tmpl: tmpl, secureCookies: opts.SecureCookies,
 		trustProxy:    opts.TrustProxy,
 		emailLimiter:  auth.NewLimiter(5, loginWindow),
 		ipLimiter:     auth.NewLimiter(20, loginWindow),
@@ -118,6 +119,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /login", s.login)
 	mux.HandleFunc("POST /logout", s.logout)
 	mux.HandleFunc("POST /seen", s.markAllSeen)
+	mux.HandleFunc("POST /stars", s.toggleStar)
+	mux.HandleFunc("GET /stars", s.starsPage)
+	mux.HandleFunc("POST /stars/settings", s.saveNotifySettings)
+	mux.HandleFunc("GET /notifications/{id}", s.openNotification)
+	mux.HandleFunc("POST /notifications/read", s.readAllNotifications)
 	mux.HandleFunc("POST /applications", s.startApplication)
 	mux.HandleFunc("GET /applications", s.applicationsPage)
 	mux.HandleFunc("GET /applications/{id}", s.applicationPage)
@@ -137,6 +143,7 @@ type Filters struct {
 	ShowApplied bool               `json:"show_applied"`     // include listings you've applied to (logged in)
 	Search      string             `json:"search,omitempty"` // company or title contains this
 	TopOnly     bool               `json:"top_only"`         // only top companies (the sources' FAANG+)
+	StarredOnly bool               `json:"starred_only"`     // only companies you starred (logged in)
 }
 
 // jobTypes are the two tabs; the first is the default.
@@ -148,7 +155,8 @@ var jobTypeLabels = map[listing.JobType]string{listing.Internship: "Internships"
 // rejected: an old bookmark should still show something sensible.
 func parseFilters(q url.Values) Filters {
 	f := Filters{JobType: jobTypes[0], MatchAll: q.Get("match") == "all", OnlyNew: q.Get("new") == "1",
-		ShowApplied: q.Get("applied") == "1", Search: strings.TrimSpace(q.Get("q")), TopOnly: q.Get("top") == "1"}
+		ShowApplied: q.Get("applied") == "1", Search: strings.TrimSpace(q.Get("q")), TopOnly: q.Get("top") == "1",
+		StarredOnly: q.Get("starred") == "1"}
 	if len(f.Search) > 100 {
 		f.Search = f.Search[:100] // nobody searches with a paragraph; keep queries cheap
 	}
@@ -192,6 +200,9 @@ func (f Filters) query(page int) string {
 	if f.TopOnly {
 		v.Set("top", "1")
 	}
+	if f.StarredOnly {
+		v.Set("starred", "1")
+	}
 	if page > 1 {
 		v.Set("page", strconv.Itoa(page))
 	}
@@ -201,6 +212,7 @@ func (f Filters) query(page int) string {
 // Page is one page of the feed; it is also the JSON response body.
 type Page struct {
 	User     *store.User     `json:"-"`                   // for the header only
+	Nav      *Nav            `json:"-"`                   // the bell
 	Loc      *time.Location  `json:"-"`                   // the viewer's timezone, for showing times
 	NewSince *time.Time      `json:"new_since,omitempty"` // logged in only
 	NewCount int             `json:"new_count"`           // roles new since then, under these filters
@@ -247,7 +259,7 @@ func (p Page) IndustryOptions() []Option {
 // Filtered reports whether any filter beyond the tab is on.
 func (p Page) Filtered() bool {
 	return len(p.Filters.Roles) > 0 || len(p.Filters.Industries) > 0 || p.Filters.OnlyNew || p.Filters.ShowApplied ||
-		p.Filters.Search != "" || p.Filters.TopOnly
+		p.Filters.Search != "" || p.Filters.TopOnly || p.Filters.StarredOnly
 }
 
 // HereURL is this page's own address, so "Mark all as seen" can come back.
@@ -270,6 +282,7 @@ func (s *Server) loadPage(r *http.Request, countsAsVisit bool) (Page, error) {
 	p := Page{User: currentUser(r), Loc: s.location(r), Filters: parseFilters(r.URL.Query()), Page: n, Cards: []feed.RoleCard{}}
 
 	if p.User != nil {
+		p.Nav = s.nav(r)
 		var since time.Time
 		ok := true
 		if countsAsVisit {
@@ -324,6 +337,7 @@ func (f Filters) feedQuery(newSince *time.Time, userID int64) store.FeedQuery {
 		JobType: f.JobType, Roles: f.Roles, MatchAllRoles: f.MatchAll, Industries: f.Industries,
 		OnlyNew: f.OnlyNew && newSince != nil, NewSince: newSince,
 		UserID: userID, ShowApplied: f.ShowApplied && userID != 0, Search: f.Search, TopOnly: f.TopOnly,
+		StarredOnly: f.StarredOnly && userID != 0,
 	}
 }
 

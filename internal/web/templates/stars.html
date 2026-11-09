@@ -1,0 +1,36 @@
+{{template "head" "Starred companies"}}
+{{template "header" .}}
+<main>
+  <h1>Starred companies</h1>
+  <p class="sub">You'll get a notification when a new role appears at one of these companies, from the moment you starred it.</p>
+
+  <section class="panel">
+    <h2>Notify me about</h2>
+    <form method="post" action="/stars/settings" class="stage-buttons">
+      {{range .Options}}<button class="stage-btn{{if .On}} on{{end}}" type="submit" name="notify_job_type" value="{{.Value}}">{{.Label}}</button>{{end}}
+    </form>
+    <p class="help">Any role tag counts: you starred the company because you care about it broadly.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Your stars</h2>
+    {{range .Companies}}
+    <div class="star-row">
+      <div><strong>{{.Name}}</strong> <span class="note">· {{.OpenRoles}} open role{{if ne .OpenRoles 1}}s{{end}}</span></div>
+      <div class="actions">
+        <a href="/?q={{.Name}}">See roles</a>
+        <form method="post" action="/stars" style="margin:0"><input type="hidden" name="company_id" value="{{.ID}}"><input type="hidden" name="star" value="0"><input type="hidden" name="back" value="/stars"><button class="linkbtn" type="submit">Unstar</button></form>
+      </div>
+    </div>
+    {{else}}
+    <p class="help">No stars yet. Tap ☆ next to a company on any card in the <a href="/">feed</a>.</p>
+    {{end}}
+  </section>
+</main>
+<style>
+  .star-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 12px 0; border-top: 1px solid var(--line); }
+  .star-row:first-of-type { border-top: 0; }
+  .star-row .actions { display: flex; gap: 16px; align-items: center; }
+  .note { color: var(--muted); font-size: 14px; }
+</style>
+{{template "foot"}}

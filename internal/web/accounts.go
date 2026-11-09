@@ -86,6 +86,7 @@ func (s *Server) clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 // AuthPage is the data for the login and sign-up pages.
 type AuthPage struct {
 	User     *store.User
+	Nav      *Nav // always nil: login and sign-up pages are for logged-out visitors
 	Title    string
 	Mode     string // "login" or "signup"
 	Email    string // re-filled after an error, so it needn't be retyped

@@ -1573,3 +1573,114 @@ func TestPipeline_FAANGRowReachesTheFeed(t *testing.T) {
 		t.Errorf("Apple card = season %q postings %+v", apple[0].Season, apple[0].Postings)
 	}
 }
+
+// --- Starred companies and notifications ---
+
+func TestDB_StarIsUniquePerUserAndCompany(t *testing.T) {
+	s := newTestStore(t)
+	uid := newUser(t, s, "a@b.co")
+	saveFrom(t, s, "simplify", simplifyFigma)
+	cid := scalar[int64](t, s, `SELECT id FROM companies`)
+	q := `INSERT INTO starred_companies (user_id, company_id) VALUES ($1, $2)`
+	if err := exec(t, s, q, uid, cid); err != nil {
+		t.Fatal(err)
+	}
+	requireUniqueViolation(t, exec(t, s, q, uid, cid))
+}
+
+func TestDB_OneNotificationPerUserListingKind(t *testing.T) {
+	s := newTestStore(t)
+	uid, lid := newUser(t, s, "a@b.co"), aListing(t, s)
+	q := `INSERT INTO notifications (user_id, listing_id, kind) VALUES ($1, $2, 'starred_company')`
+	if err := exec(t, s, q, uid, lid); err != nil {
+		t.Fatal(err)
+	}
+	requireUniqueViolation(t, exec(t, s, q, uid, lid))
+}
+
+func TestNotifications(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	uid := newUser(t, s, "a@b.co")
+	add := func(source, id, title string, jt listing.JobType, link string) {
+		t.Helper()
+		p := listing.Posting{SourceListingID: id, Company: "Google", Title: title, JobType: jt,
+			Season: "Summer 2027", ApplyURL: link, Active: true}
+		saveFrom(t, s, source, p)
+	}
+	add("simplify", "old", "Old SWE Intern", listing.Internship, "https://google.com/careers")
+	cid := scalar[int64](t, s, `SELECT id FROM companies WHERE normalized_name = 'google'`)
+
+	// Star Google. In this test transaction now() never moves, so pretend
+	// the star happened an hour ago and the existing role before that.
+	if err := s.Star(ctx, uid, cid); err != nil {
+		t.Fatal(err)
+	}
+	exec(t, s, `UPDATE listings SET first_seen_at = now() - interval '2 hours'`)
+	exec(t, s, `UPDATE starred_companies SET starred_at = now() - interval '1 hour'`)
+
+	// New roles after the star: an internship (yes), a new-grad role (no:
+	// the setting is internships), and an internship tagged Data (yes:
+	// stars ignore role tags).
+	add("simplify", "n1", "Software Engineering Intern", listing.Internship, "https://boards.greenhouse.io/google/jobs/1111111")
+	add("simplify", "n2", "Software Engineer New Grad", listing.NewGrad, "https://google.com/careers/x")
+	add("simplify", "n3", "Data Analyst Intern", listing.Internship, "https://google.com/careers/y")
+	// The same role again via SpeedyApply (same job link): still one listing.
+	add("speedyapply", "greenhouse:1111111", "SWE Intern", listing.Internship, "https://job-boards.greenhouse.io/google/jobs/1111111")
+
+	n, err := s.CreateNotifications(ctx)
+	if err != nil || n != 2 {
+		t.Fatalf("created %d (%v), want 2: two new internships, not the old role or the new-grad one", n, err)
+	}
+	if again, _ := s.CreateNotifications(ctx); again != 0 {
+		t.Errorf("a second run created %d more, want 0: exactly one ping per role", again)
+	}
+	if unread, _ := s.UnreadCount(ctx, uid); unread != 2 {
+		t.Errorf("unread = %d, want 2", unread)
+	}
+
+	// "Both" picks up the new-grad role too.
+	s.SetNotifyJobType(ctx, uid, NotifyBoth)
+	if n, _ := s.CreateNotifications(ctx); n != 1 {
+		t.Errorf("after switching to both: %d new, want 1", n)
+	}
+
+	// Opening one marks it read; another user can't open it.
+	list, _ := s.Notifications(ctx, uid, 10)
+	other := newUser(t, s, "x@b.co")
+	if _, _, err := s.OpenNotification(ctx, other, list[0].ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("another user opened it: %v", err)
+	}
+	if company, _, err := s.OpenNotification(ctx, uid, list[0].ID); err != nil || company != "Google" {
+		t.Errorf("open = %q, %v", company, err)
+	}
+	if unread, _ := s.UnreadCount(ctx, uid); unread != 2 {
+		t.Errorf("unread after opening one = %d, want 2", unread)
+	}
+
+	// Un-starring keeps what was already sent: notifications are events.
+	s.Unstar(ctx, uid, cid)
+	if all, _ := s.Notifications(ctx, uid, 10); len(all) != 3 {
+		t.Errorf("after un-starring: %d notifications, want the 3 already sent", len(all))
+	}
+}
+
+func TestFeed_StarredOnly(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	uid := newUser(t, s, "a@b.co")
+	saveFrom(t, s, "simplify", simplifyFigma)
+	other := simplifyFigma
+	other.Company, other.SourceListingID, other.ApplyURL = "Acme", "a", "https://acme.com/careers"
+	saveFrom(t, s, "simplify", other)
+	figma := scalar[int64](t, s, `SELECT id FROM companies WHERE normalized_name = 'figma'`)
+	s.Star(ctx, uid, figma)
+
+	feed, _ := s.Feed(ctx, FeedQuery{JobType: listing.Internship, Limit: 10, UserID: uid, StarredOnly: true})
+	if len(feed) != 1 || feed[0].Company != "Figma" || !feed[0].Starred {
+		t.Errorf("starred-only feed = %+v, want just Figma, marked starred", feed)
+	}
+	if n, _ := s.CountFeed(ctx, FeedQuery{JobType: listing.Internship, StarredOnly: true}); n != 2 {
+		t.Errorf("logged out, the starred filter does nothing: %d, want 2", n)
+	}
+}

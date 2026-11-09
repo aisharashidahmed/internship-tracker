@@ -138,6 +138,21 @@ looked. That moves forward on its own only when you come back after 30+
 minutes away (refreshing or paging keeps your badges), or when you click
 **Mark all as seen**. On your first visit, the last 24 hours count as new.
 
+## Starred companies and notifications
+
+Tap ☆ next to any company on a card to star it (★). After each hourly
+ingest, the server creates a notification for each **new** role at a starred
+company: open, first seen **after** you starred it (existing roles aren't
+news; the "☆ Starred by you" filter shows those), and of the job type you
+chose on the Starred companies page (Internships, New grad or Both). Role
+tags don't matter: a star means you care about the company broadly.
+
+The bell in the header shows the unread count and the latest notifications;
+opening one marks it read and shows that company's roles. A unique
+(user, listing, kind) constraint means each role pings you exactly once, even
+if it appears in both sources or ingest runs twice. Un-starring keeps the
+notifications already sent: they're events that happened.
+
 ## Application tracker
 
 Logged in, each feed card has **Save** and **I applied**. *I applied* opens

@@ -31,6 +31,12 @@ func (in *Ingester) RunAll(ctx context.Context, adapters []source.Adapter, opts 
 	if err := in.Store.SyncIndustries(ctx); err != nil {
 		results = append(results, Result{Report: Report{Source: "industry tags"}, Err: err})
 	}
+	// Now that this hour's roles are saved: notify users about new roles at
+	// companies they starred (each role pings each user at most once).
+	start := time.Now()
+	n, err := in.Store.CreateNotifications(ctx)
+	results = append(results, Result{Err: err, Report: Report{Source: "notifications",
+		Note: fmt.Sprintf("%d new", n), Took: time.Since(start)}})
 	return results
 }
 

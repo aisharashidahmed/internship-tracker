@@ -121,6 +121,15 @@ func (s *Store) mergeInto(ctx context.Context, from, to int64) error {
 	if _, err := s.db.Exec(ctx, `UPDATE applications SET listing_id = $2 WHERE listing_id = $1`, from, to); err != nil {
 		return fmt.Errorf("merge listing %d into %d: move applications: %w", from, to, err)
 	}
+	// Notifications move too, unless the user was already notified about
+	// the listing it merges into (then the extra one goes with the listing).
+	if _, err := s.db.Exec(ctx, `
+		UPDATE notifications n SET listing_id = $2
+		WHERE n.listing_id = $1 AND NOT EXISTS (
+			SELECT 1 FROM notifications o WHERE o.user_id = n.user_id AND o.listing_id = $2 AND o.kind = n.kind)`,
+		from, to); err != nil {
+		return fmt.Errorf("merge listing %d into %d: move notifications: %w", from, to, err)
+	}
 	// Keep the earlier first-seen time and posted date: the job was known then.
 	_, err := s.db.Exec(ctx, `
 		UPDATE listings t SET

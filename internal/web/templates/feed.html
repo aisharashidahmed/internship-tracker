@@ -139,6 +139,7 @@
         <span class="label">Tier</span>
         <div class="chips">
           <label class="pick"><input type="checkbox" name="top" value="1"{{if .Filters.TopOnly}} checked{{end}}><span>★ Top companies</span></label>
+          {{if .User}}<label class="pick"><input type="checkbox" name="starred" value="1"{{if .Filters.StarredOnly}} checked{{end}}><span>☆ Starred by you</span></label>{{end}}
         </div>
       </div>
 
@@ -196,10 +197,17 @@
         <article class="card role{{with $c.Roles}} k-{{index . 0}}{{end}}{{if eq (len $c.Seasons) 1}} single{{end}}{{if (index $c.Seasons 0).Stale}} stale{{end}}">
           <div class="role-top">
             <div class="avatar c{{$c.Color}}" aria-hidden="true">{{$c.Initial}}</div>
-            <div>
+            <div style="flex:1">
               <h2 class="title">{{$c.Title}}</h2>
               <div class="company">{{$c.Company}}</div>
             </div>
+            {{if $.User}}
+            <form method="post" action="/stars" style="margin:0">
+              <input type="hidden" name="company_id" value="{{$c.CompanyID}}"><input type="hidden" name="back" value="{{$.HereURL}}">
+              {{if $c.Starred}}<input type="hidden" name="star" value="0"><button class="star on" type="submit" aria-label="Unstar {{$c.Company}}" title="Starred: you'll hear about new roles">★</button>
+              {{else}}<input type="hidden" name="star" value="1"><button class="star" type="submit" aria-label="Star {{$c.Company}}" title="Star to hear about new roles">☆</button>{{end}}
+            </form>
+            {{end}}
           </div>
 
           <div class="chips">

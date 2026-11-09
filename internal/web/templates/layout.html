@@ -138,6 +138,26 @@
   .meta span + span::before { content: "·"; margin: 0 7px; }
   .help { color: var(--muted); font-size: 14px; margin: 10px 0 0; }
   .empty { background: var(--surface); border: 2px dashed var(--line); border-radius: 20px; padding: 32px; text-align: center; color: var(--muted); }
+  /* The bell */
+  .bell { position: relative; }
+  .bell summary { list-style: none; cursor: pointer; position: relative; display: grid; place-items: center;
+                  width: 44px; height: 44px; border-radius: 50%; color: var(--heading); }
+  .bell summary::-webkit-details-marker { display: none; }
+  .bell summary:hover, .bell[open] summary { background: var(--surface-2); }
+  .bell-count { position: absolute; top: 4px; right: 2px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 99px;
+                background: var(--primary); color: var(--on-primary); font-size: 12px; font-weight: 800; display: grid; place-items: center; }
+  .bell-menu { position: absolute; right: 0; top: 50px; width: min(360px, calc(100vw - 32px)); z-index: 30; background: var(--surface);
+               border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); padding: 8px; color: var(--text); }
+  .bell-head { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; }
+  .bell-head form { margin: 0; }
+  .bell-item { display: grid; gap: 2px; padding: 10px 12px; border-radius: 12px; color: var(--text); text-decoration: none; font-size: 15px; }
+  .bell-item:hover { background: var(--surface-2); }
+  .bell-item.unread { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--selected); }
+  .bell-empty { color: var(--muted); padding: 8px 12px; margin: 0; font-size: 15px; }
+  .bell-foot { display: block; padding: 10px 12px; font-weight: 700; border-top: 1px solid var(--line); margin-top: 6px; }
+  .star { background: none; border: 0; cursor: pointer; font-size: 22px; line-height: 1; padding: 0; min-width: 44px; min-height: 44px;
+          color: var(--muted); }
+  .star.on { color: var(--heading); }
   .error { background: var(--c-warn); color: var(--t-warn); border-radius: 12px; padding: 10px 14px; margin-bottom: 8px; }
   .closed-note { color: var(--t-warn); font-weight: 700; }
 
@@ -182,6 +202,29 @@
   <a class="brand" href="/">Internship tracker</a>
   <nav class="account" aria-label="Account">
     {{if .User}}
+      {{with .Nav}}
+      <details class="bell">
+        <summary aria-label="Notifications, {{.Unread}} unread">
+          <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6V11a7 7 0 0 0-5.5-6.84V3.5a1.5 1.5 0 0 0-3 0v.66A7 7 0 0 0 5 11v5l-2 2v1h18v-1l-2-2Z"/></svg>
+          {{if .Unread}}<span class="bell-count">{{.Unread}}</span>{{end}}
+        </summary>
+        <div class="bell-menu">
+          <div class="bell-head"><strong>Notifications</strong>
+            {{if .Unread}}<form method="post" action="/notifications/read"><input type="hidden" name="back" value="/"><button class="linkbtn" type="submit">Mark all read</button></form>{{end}}
+          </div>
+          {{range .Items}}
+          <a class="bell-item{{if not .Read}} unread{{end}}" href="/notifications/{{.ID}}">
+            <span><strong>New role at {{.Company}}</strong></span>
+            <span>{{.Title}}{{if .Season}} · {{.Season}}{{end}}</span>
+            <span class="when">{{ago .CreatedAt}}</span>
+          </a>
+          {{else}}
+          <p class="bell-empty">No notifications yet. Star companies (☆ on any card) to hear about their new roles.</p>
+          {{end}}
+          <a class="bell-foot" href="/stars">Starred companies &amp; settings</a>
+        </div>
+      </details>
+      {{end}}
       <a href="/applications">My applications</a>
       <span>{{.User.Email}}</span>
       <form method="post" action="/logout"><button class="linkbtn" type="submit">Log out</button></form>

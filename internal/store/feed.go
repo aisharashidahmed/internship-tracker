@@ -30,7 +30,9 @@ type FeedListing struct {
 	ApplicationID  *int64
 	Stage          *string
 	InterviewRound *int
-	TopCompany     bool          // a source flags the company as a top company
+	TopCompany     bool // a source flags the company as a top company
+	CompanyID      int64
+	Starred        bool          // the viewer starred this company
 	Roles          []string      // role tags, e.g. ["backend", "ml"]
 	Industries     []string      // the company's industry tags
 	Postings       []FeedPosting // in the order we first stored them
@@ -58,6 +60,8 @@ type FeedQuery struct {
 	Search string
 	// TopOnly keeps listings at top companies (company_top_signals).
 	TopOnly bool
+	// StarredOnly keeps listings at companies the viewer starred (needs UserID).
+	StarredOnly bool
 	// Limit and Offset count groups (cards), not listings.
 	Limit  int
 	Offset int
@@ -92,11 +96,11 @@ func (q FeedQuery) args() []any {
 	if q.UserID != 0 {
 		userID = &q.UserID
 	}
-	return []any{q.JobType, roles, q.MatchAllRoles, industries, newSince, userID, q.ShowApplied, searchPattern(q.Search), q.TopOnly}
+	return []any{q.JobType, roles, q.MatchAllRoles, industries, newSince, userID, q.ShowApplied, searchPattern(q.Search), q.TopOnly, q.StarredOnly && q.UserID != 0}
 }
 
 // feedFilter is the WHERE clause shared by Feed and CountFeed, so the
-// "N new" count always agrees with the cards shown. Parameters $1-$9 come
+// "N new" count always agrees with the cards shown. Parameters $1-$10 come
 // from FeedQuery.args.
 const feedFilter = `
 	FROM listings l JOIN companies c ON c.id = l.company_id
@@ -117,7 +121,9 @@ const feedFilter = `
 	  -- search: company or title contains the text
 	  AND ($8 = '' OR c.name ILIKE $8 OR l.title ILIKE $8)
 	  -- top companies only
-	  AND (NOT $9 OR EXISTS (SELECT 1 FROM company_top_signals t WHERE t.company_id = l.company_id))`
+	  AND (NOT $9 OR EXISTS (SELECT 1 FROM company_top_signals t WHERE t.company_id = l.company_id))
+	  -- the viewer's starred companies only
+	  AND (NOT $10 OR EXISTS (SELECT 1 FROM starred_companies sc WHERE sc.company_id = l.company_id AND sc.user_id = $6))`
 
 // groupKey is a listing's card: its role_key, or itself if it has none yet.
 const groupKey = `COALESCE(l.role_key, 'id:' || l.id)`
@@ -150,11 +156,13 @@ func (s *Store) Feed(ctx context.Context, q FeedQuery) ([]FeedListing, error) {
 			                                      max(posted_at) DESC NULLS LAST, max(id) DESC) AS pos
 			FROM m GROUP BY gk
 			ORDER BY pos
-			LIMIT $10 OFFSET $11
+			LIMIT $11 OFFSET $12
 		)
 		SELECT l.id, page.gk, c.name, l.title, l.season, l.degree_level, l.status, l.posted_at, l.first_seen_at, l.feed_at, l.new_at,
 		       ua.id, ua.stage, ua.interview_round,
 		       EXISTS (SELECT 1 FROM company_top_signals t WHERE t.company_id = l.company_id),
+		       l.company_id,
+		       EXISTS (SELECT 1 FROM starred_companies sc WHERE sc.company_id = l.company_id AND sc.user_id = $6),
 		       ARRAY(SELECT role FROM listing_roles WHERE listing_id = l.id),
 		       ARRAY(SELECT industry FROM company_industries WHERE company_id = l.company_id ORDER BY industry)
 		FROM page
@@ -170,7 +178,7 @@ func (s *Store) Feed(ctx context.Context, q FeedQuery) ([]FeedListing, error) {
 	listings, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (FeedListing, error) {
 		var l FeedListing
 		err := row.Scan(&l.ID, &l.GroupKey, &l.Company, &l.Title, &l.Season, &l.DegreeLevel, &l.Status, &l.PostedAt,
-			&l.FirstSeenAt, &l.FeedAt, &l.NewAt, &l.ApplicationID, &l.Stage, &l.InterviewRound, &l.TopCompany, &l.Roles, &l.Industries)
+			&l.FirstSeenAt, &l.FeedAt, &l.NewAt, &l.ApplicationID, &l.Stage, &l.InterviewRound, &l.TopCompany, &l.CompanyID, &l.Starred, &l.Roles, &l.Industries)
 		return l, err
 	})
 	if err != nil {

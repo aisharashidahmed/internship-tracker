@@ -62,6 +62,10 @@ func main() {
 }
 
 func printReport(r ingest.Report) {
+	if r.Note != "" { // a step that doesn't save listings (top companies, notifications)
+		fmt.Printf("%s: %s in %s\n", r.Source, r.Note, r.Took.Round(time.Millisecond))
+		return
+	}
 	if r.NotModified {
 		fmt.Printf("%s: unchanged since last fetch (HTTP 304), skipped in %s\n",
 			r.Source, r.Took.Round(time.Millisecond))

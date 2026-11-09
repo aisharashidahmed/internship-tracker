@@ -116,7 +116,7 @@ func (f *fakeTracker) AddResumeVersion(context.Context, int64, string) (int64, e
 // signedIn returns a browser logged in as a new user.
 func signedIn(t *testing.T, email string, accounts *fakeAccounts, tracker *fakeTracker) *browser {
 	t.Helper()
-	s, err := New(fakeFeed{listings: listings(2)}, accounts, tracker, Options{})
+	s, err := New(fakeFeed{listings: listings(2)}, accounts, tracker, newFakeStars(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestTracker_LoggedOutIsSentToLogin(t *testing.T) {
 
 func TestTimezone_FromBrowserAndShownInIt(t *testing.T) {
 	accounts, tracker := newFakeAccounts(), newFakeTracker()
-	s, err := New(fakeFeed{listings: listings(1)}, accounts, tracker, Options{})
+	s, err := New(fakeFeed{listings: listings(1)}, accounts, tracker, newFakeStars(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

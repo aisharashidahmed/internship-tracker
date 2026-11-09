@@ -93,7 +93,7 @@ func main() {
 
 	// COOKIE_SECURE=1 in production (HTTPS); plain http://localhost needs it off.
 	// APP_TIMEZONE: the zone for logged-out visitors (users get their own).
-	s, err := web.New(st, st, st, web.Options{
+	s, err := web.New(st, st, st, st, web.Options{
 		SecureCookies:   os.Getenv("COOKIE_SECURE") == "1",
 		TrustProxy:      os.Getenv("TRUST_PROXY") == "1",
 		DefaultTimezone: os.Getenv("APP_TIMEZONE"),
