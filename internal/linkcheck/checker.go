@@ -201,6 +201,7 @@ func (c *Checker) fetch(ctx context.Context, u *url.URL, pace *pacer) (status in
 	}
 	req.Header.Set("User-Agent", c.UserAgent)
 	res, err := c.Client.Do(req)
+	defer pace.done() // even a failed request counts toward the spacing
 	if err != nil {
 		return 0, "", err
 	}
@@ -227,7 +228,9 @@ func (c *Checker) robotsFor(ctx context.Context, u *url.URL, pace *pacer) *Robot
 	if err := pace.wait(ctx); err == nil {
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, key+"/robots.txt", nil)
 		req.Header.Set("User-Agent", c.UserAgent)
-		if res, err := c.Client.Do(req); err == nil {
+		res, err := c.Client.Do(req)
+		pace.done()
+		if err == nil {
 			body, _ := io.ReadAll(io.LimitReader(res.Body, 512<<10))
 			res.Body.Close()
 			switch {
@@ -244,14 +247,17 @@ func (c *Checker) robotsFor(ctx context.Context, u *url.URL, pace *pacer) *Robot
 	return rules
 }
 
-// pacer spaces out requests to one website.
+// pacer spaces out requests to one website: the next request starts at
+// least gap after the previous one *finished*, so a slow response can't
+// make two requests land closer together than gap.
 type pacer struct {
 	gap  time.Duration
-	last time.Time
+	last time.Time // when the previous request finished
 }
 
 func newPacer(gap time.Duration) *pacer { return &pacer{gap: gap} }
 
+// wait blocks until it's polite to send the next request.
 func (p *pacer) wait(ctx context.Context) error {
 	if d := time.Until(p.last.Add(p.gap)); d > 0 && !p.last.IsZero() {
 		select {
@@ -260,9 +266,11 @@ func (p *pacer) wait(ctx context.Context) error {
 			return ctx.Err()
 		}
 	}
-	p.last = time.Now()
 	return nil
 }
+
+// done records that a request just finished.
+func (p *pacer) done() { p.last = time.Now() }
 
 func shortError(err error) string {
 	s := err.Error()

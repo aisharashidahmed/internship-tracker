@@ -64,7 +64,7 @@ func NewCard(l store.FeedListing, newSince *time.Time) Card {
 		PostedAt:           l.PostedAt,
 		FirstSeenAt:        l.FirstSeenAt,
 		Links:              []Link{},
-		New:                newSince != nil && l.FeedAt != nil && l.FeedAt.After(*newSince),
+		New:                newSince != nil && l.NewAt != nil && l.NewAt.After(*newSince),
 		Roles:              sortedRoles(l.Roles),
 		Industries:         append([]string{}, l.Industries...),
 	}

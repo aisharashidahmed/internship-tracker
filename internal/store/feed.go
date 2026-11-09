@@ -24,7 +24,8 @@ type FeedListing struct {
 	Status      string     // StatusOpen or StatusStale
 	PostedAt    *time.Time // nil if no source says
 	FirstSeenAt time.Time
-	FeedAt      *time.Time // what the feed sorts by and "new" compares; nil if unknown
+	FeedAt      *time.Time // the sort time (listings.feed_at); nil if unknown
+	NewAt       *time.Time // when the app could first show it: "New for you" compares this
 	// The viewer's application, if they have one (nil otherwise).
 	ApplicationID  *int64
 	Stage          *string
@@ -108,8 +109,8 @@ const feedFilter = `
 	  AND (cardinality($4::text[]) = 0
 	       OR EXISTS (SELECT 1 FROM company_industries ci
 	                  WHERE ci.company_id = l.company_id AND ci.industry = ANY($4)))
-	  -- "new" means: the feed's own time (see listings.feed_at) is after the boundary
-	  AND ($5::timestamptz IS NULL OR l.feed_at > $5)
+	  -- "new for you": the app first showed it after your boundary (listings.new_at)
+	  AND ($5::timestamptz IS NULL OR l.new_at > $5)
 	  -- search: company or title contains the text
 	  AND ($8 = '' OR c.name ILIKE $8 OR l.title ILIKE $8)`
 
@@ -146,7 +147,7 @@ func (s *Store) Feed(ctx context.Context, q FeedQuery) ([]FeedListing, error) {
 			ORDER BY pos
 			LIMIT $9 OFFSET $10
 		)
-		SELECT l.id, page.gk, c.name, l.title, l.season, l.degree_level, l.status, l.posted_at, l.first_seen_at, l.feed_at,
+		SELECT l.id, page.gk, c.name, l.title, l.season, l.degree_level, l.status, l.posted_at, l.first_seen_at, l.feed_at, l.new_at,
 		       ua.id, ua.stage, ua.interview_round,
 		       ARRAY(SELECT role FROM listing_roles WHERE listing_id = l.id),
 		       ARRAY(SELECT industry FROM company_industries WHERE company_id = l.company_id ORDER BY industry)
@@ -163,7 +164,7 @@ func (s *Store) Feed(ctx context.Context, q FeedQuery) ([]FeedListing, error) {
 	listings, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (FeedListing, error) {
 		var l FeedListing
 		err := row.Scan(&l.ID, &l.GroupKey, &l.Company, &l.Title, &l.Season, &l.DegreeLevel, &l.Status, &l.PostedAt,
-			&l.FirstSeenAt, &l.FeedAt, &l.ApplicationID, &l.Stage, &l.InterviewRound, &l.Roles, &l.Industries)
+			&l.FirstSeenAt, &l.FeedAt, &l.NewAt, &l.ApplicationID, &l.Stage, &l.InterviewRound, &l.Roles, &l.Industries)
 		return l, err
 	})
 	if err != nil {

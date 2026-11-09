@@ -67,13 +67,13 @@ func TestNewCard_NotSeenSinceOnlyIfNoSourceListsIt(t *testing.T) {
 func TestNewCard_New(t *testing.T) {
 	since := time.Date(2026, 11, 8, 9, 0, 0, 0, time.UTC)
 	before, after := since.Add(-time.Minute), since.Add(time.Minute)
-	if !NewCard(store.FeedListing{FeedAt: &after}, &since).New {
+	if !NewCard(store.FeedListing{NewAt: &after}, &since).New {
 		t.Error("appeared after the boundary but not New")
 	}
-	if NewCard(store.FeedListing{FeedAt: &before}, &since).New {
+	if NewCard(store.FeedListing{NewAt: &before}, &since).New {
 		t.Error("appeared before the boundary but New")
 	}
-	if NewCard(store.FeedListing{FeedAt: &after}, nil).New {
+	if NewCard(store.FeedListing{NewAt: &after}, nil).New {
 		t.Error("logged out: nothing is New")
 	}
 }

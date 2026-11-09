@@ -274,8 +274,8 @@ func TestNewSinceYouLastLooked(t *testing.T) {
 	// Two listings: one appeared an hour ago (new), one three days ago (not).
 	hourAgo, daysAgo := time.Now().Add(-time.Hour), time.Now().Add(-72*time.Hour)
 	f := fakeFeed{listings: listings(2)}
-	f.listings[0].Title, f.listings[0].FeedAt = "Fresh Intern", &hourAgo
-	f.listings[1].Title, f.listings[1].FeedAt = "Older Intern", &daysAgo
+	f.listings[0].Title, f.listings[0].NewAt = "Fresh Intern", &hourAgo
+	f.listings[1].Title, f.listings[1].NewAt = "Older Intern", &daysAgo
 
 	// Logged out: no New badges, no count.
 	logged := newBrowserWithFeed(t, f, newFakeAccounts())

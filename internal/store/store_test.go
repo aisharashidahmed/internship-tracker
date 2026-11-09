@@ -438,8 +438,9 @@ func TestFeed_Order(t *testing.T) {
 	save(simplifyID, true, "2", "Newer", daysAgo(1))
 	save(simplifyID, true, "3", "No date", time.Time{})
 	save(speedyID, true, "4", "Will go stale", daysAgo(0))
-	// A later run: new to us right now, so it's the freshest, whatever its posted date.
-	save(simplifyID, false, "5", "Found later", daysAgo(30))
+	// A later run: new to us right now, and posted within 14 days of being
+	// found, so it's the freshest. (Older discoveries: see the next test.)
+	save(simplifyID, false, "5", "Found later", daysAgo(10))
 	markMissing(t, s, "speedyapply") // "Will go stale" vanished from SpeedyApply
 
 	feed, err := s.Feed(ctx, FeedQuery{JobType: listing.Internship, Limit: 10})
@@ -1414,5 +1415,57 @@ func TestSignUp_WithoutInvite(t *testing.T) {
 	}
 	if n := scalar[int](t, s, `SELECT count(*) FROM users WHERE invite_id IS NULL`); n != 1 {
 		t.Errorf("users without an invite = %d, want 1", n)
+	}
+}
+
+// --- Old discoveries don't jump to the top ---
+
+func TestFeed_OldDiscoverySortsByPostedDate(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	simplifyID := scalar[int64](t, s, `SELECT id FROM sources WHERE name = 'simplify'`)
+	save := func(title string, postedDaysAgo int, firstLoad bool) {
+		t.Helper()
+		var posted time.Time
+		if postedDaysAgo >= 0 {
+			posted = time.Now().AddDate(0, 0, -postedDaysAgo)
+		}
+		l := listing.Group([]listing.Posting{{SourceListingID: title, Company: "Acme", Title: title,
+			JobType: listing.Internship, Season: "Summer 2027", ApplyURL: "https://acme.com/careers", Active: true, PostedAt: posted}})[0]
+		if _, err := s.SaveListing(ctx, simplifyID, l, firstLoad); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// From the first ingest: sorted by posted date.
+	save("Posted Yesterday", 1, true)
+	// Discovered today by a later run (not a first load):
+	save("Posted 69 Days Ago", 69, false) // older than 14 days when found: sorts by its posted date
+	save("Posted 10 Days Ago", 10, false) // found within 14 days: still sorts as newly found (top)
+	save("No Posted Date", -1, false)     // no date: first-seen, as before (top)
+
+	feed, err := s.Feed(ctx, FeedQuery{JobType: listing.Internship, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pos := map[string]int{}
+	for i, l := range feed {
+		pos[l.Title] = i
+	}
+	if pos["Posted 69 Days Ago"] < pos["Posted Yesterday"] {
+		t.Errorf("a 69-day-old role found today sorts above one posted yesterday: order %v", pos)
+	}
+	if pos["Posted 10 Days Ago"] > pos["Posted Yesterday"] || pos["No Posted Date"] > pos["Posted Yesterday"] {
+		t.Errorf("recent or undated discoveries should still sort as newly found: order %v", pos)
+	}
+
+	// Still "New for you": it's new to the user even though it's old.
+	since := time.Now().Add(-time.Hour)
+	newOnes, _ := s.Feed(ctx, FeedQuery{JobType: listing.Internship, Limit: 10, OnlyNew: true, NewSince: &since})
+	found := false
+	for _, l := range newOnes {
+		found = found || l.Title == "Posted 69 Days Ago"
+	}
+	if !found {
+		t.Error("the 69-day-old discovery should still be New for you")
 	}
 }

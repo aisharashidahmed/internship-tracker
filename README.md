@@ -98,8 +98,10 @@ list counts once).
 
 "Freshest" means: for listings from a source's very first ingest, the date
 the source says the job was posted (they'd otherwise all share one
-first-seen time); for listings found later, when this app first saw them.
-Unknown dates go last.
+first-seen time); for listings found later, when this app first saw them,
+unless the job was already more than 14 days old (by its posted date) when
+found: then its posted date, so an old discovery doesn't jump to the top. It
+still gets "New for you", since it's new to you. Unknown dates go last.
 
 ## Tags and filters
 

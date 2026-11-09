@@ -32,7 +32,7 @@ func (f fakeFeed) Feed(_ context.Context, q store.FeedQuery) ([]store.FeedListin
 	}
 	var matching []store.FeedListing
 	for _, l := range f.listings {
-		if q.OnlyNew && q.NewSince != nil && (l.FeedAt == nil || !l.FeedAt.After(*q.NewSince)) {
+		if q.OnlyNew && q.NewSince != nil && (l.NewAt == nil || !l.NewAt.After(*q.NewSince)) {
 			continue
 		}
 		matching = append(matching, l)
@@ -49,7 +49,7 @@ func (f fakeFeed) CountFeed(_ context.Context, q store.FeedQuery) (int, error) {
 	}
 	groups := map[string]bool{}
 	for _, l := range f.listings {
-		if !q.OnlyNew || q.NewSince == nil || (l.FeedAt != nil && l.FeedAt.After(*q.NewSince)) {
+		if !q.OnlyNew || q.NewSince == nil || (l.NewAt != nil && l.NewAt.After(*q.NewSince)) {
 			groups[l.GroupKey] = true
 		}
 	}
