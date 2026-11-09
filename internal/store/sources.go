@@ -11,14 +11,17 @@ type Source struct {
 	Name string
 	URL  string
 	ETag string // empty if we have never fetched it
+	// FirstLoad is true until the source's first successful ingest. Listings
+	// created during it are sorted in the feed by their posted date.
+	FirstLoad bool
 }
 
 // SourceByName loads a source, e.g. "simplify".
 func (s *Store) SourceByName(ctx context.Context, name string) (Source, error) {
 	src := Source{Name: name}
 	err := s.db.QueryRow(ctx,
-		`SELECT id, url, COALESCE(etag, '') FROM sources WHERE name = $1`, name,
-	).Scan(&src.ID, &src.URL, &src.ETag)
+		`SELECT id, url, COALESCE(etag, ''), last_fetched_at IS NULL FROM sources WHERE name = $1`, name,
+	).Scan(&src.ID, &src.URL, &src.ETag, &src.FirstLoad)
 	if err != nil {
 		return Source{}, fmt.Errorf("load source %q: %w", name, err)
 	}

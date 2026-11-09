@@ -194,6 +194,8 @@ var locationAliases = map[string]string{
 	"sf":               "San Francisco, CA",
 	"san francisco":    "San Francisco, CA",
 	"south sf":         "South San Francisco, CA",
+	"la":               "Los Angeles, CA",
+	"los angeles":      "Los Angeles, CA",
 }
 
 // NormalizeLocation returns one form per place. Every remote variant

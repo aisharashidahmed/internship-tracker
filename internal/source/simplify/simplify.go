@@ -5,6 +5,7 @@ package simplify
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"internship-tracker/internal/listing"
 )
@@ -24,6 +25,7 @@ type record struct {
 	URL       string   `json:"url"`
 	Locations []string `json:"locations"`
 	Degrees   []string `json:"degrees"`
+	Posted    int64    `json:"date_posted"` // Unix seconds
 }
 
 // Adapter implements source.Adapter for Simplify.
@@ -56,10 +58,19 @@ func (Adapter) Parse(body []byte) ([]listing.Posting, error) {
 				ApplyURL:        r.URL,
 				DegreeLevel:     degreeLevel(r.Degrees),
 				Active:          r.Active,
+				PostedAt:        postedAt(r.Posted),
 			})
 		}
 	}
 	return postings, nil
+}
+
+// postedAt converts Unix seconds; 0 means Simplify didn't say.
+func postedAt(unix int64) time.Time {
+	if unix <= 0 {
+		return time.Time{}
+	}
+	return time.Unix(unix, 0).UTC()
 }
 
 // degreeLevel: a role is open to bachelor's students if it lists

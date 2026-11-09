@@ -80,7 +80,7 @@ func (in *Ingester) Run(ctx context.Context, adapter source.Adapter, opts Option
 
 	err = in.Store.InTx(ctx, func(tx *store.Store) error {
 		for _, l := range listing.Group(postings) {
-			outcome, err := tx.SaveListing(ctx, src.ID, l)
+			outcome, err := tx.SaveListing(ctx, src.ID, l, src.FirstLoad)
 			if err != nil {
 				return err
 			}

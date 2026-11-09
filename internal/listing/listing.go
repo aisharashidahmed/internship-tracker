@@ -4,6 +4,8 @@
 // Nothing here touches the network or the database, so it is easy to test.
 package listing
 
+import "time"
+
 // JobType is what kind of role a listing is.
 type JobType string
 
@@ -32,7 +34,8 @@ type Posting struct {
 	Locations       []string
 	ApplyURL        string
 	DegreeLevel     DegreeLevel
-	Active          bool // false when the source has marked it closed
+	Active          bool      // false when the source has marked it closed
+	PostedAt        time.Time // when the source says it was posted; zero if unknown
 }
 
 // Listing is one real job: all postings that share a dedupe key.
@@ -43,6 +46,7 @@ type Listing struct {
 	JobType     JobType
 	Season      string
 	DegreeLevel DegreeLevel
+	PostedAt    time.Time // the earliest PostedAt of its postings; zero if none says
 	Postings    []Posting
 }
 
@@ -76,7 +80,8 @@ func Group(postings []Posting) []Listing {
 				Title:       p.Title,
 				JobType:     p.JobType,
 				Season:      p.Season,
-				DegreeLevel: p.DegreeLevel,
+				DegreeLevel: MergeDegree(p.DegreeLevel, DegreeUnknown), // "" (not set) becomes unknown
+				PostedAt:    p.PostedAt,
 				Postings:    []Posting{p},
 			})
 			continue
@@ -85,8 +90,17 @@ func Group(postings []Posting) []Listing {
 		l := &listings[i]
 		l.Postings = append(l.Postings, p)
 		l.DegreeLevel = MergeDegree(l.DegreeLevel, p.DegreeLevel)
+		l.PostedAt = Earliest(l.PostedAt, p.PostedAt)
 	}
 	return listings
+}
+
+// Earliest returns the earlier of two posted dates, treating zero as unknown.
+func Earliest(a, b time.Time) time.Time {
+	if a.IsZero() || (!b.IsZero() && b.Before(a)) {
+		return b
+	}
+	return a
 }
 
 // MergeDegree combines what two postings of one job say about degrees.

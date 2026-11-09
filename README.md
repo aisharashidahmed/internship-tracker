@@ -13,6 +13,7 @@ createdb internship_tracker_test     # once, for tests
 go run ./cmd/migrate                 # create/update tables
 go run ./cmd/ingest                  # fetch every source and save listings
 go run ./cmd/ingest -force           # ignore saved ETags and re-save everything
+go run ./cmd/server                  # the feed at http://localhost:8080 (JSON: /api/listings)
 go test ./...                        # all tests (store tests use the _test DB)
 ```
 
@@ -46,6 +47,18 @@ its data is left unchanged, and `ingest` exits with status 1.
 | `stale` | no source says closed, but it vanished from every source that listed it — "may be closed" |
 | `closed` | a source explicitly marked it closed |
 
+## The feed
+
+One card per listing, open roles first, freshest first; stale ones ("may be
+closed") go at the end and closed ones are hidden. A card with several job
+links shows "N openings" and expands to list each link (a link both sources
+list counts once).
+
+"Freshest" means: for listings from a source's very first ingest, the date
+the source says the job was posted (they'd otherwise all share one
+first-seen time); for listings found later, when this app first saw them.
+Unknown dates go last.
+
 ## How the code is laid out
 
 Data flows one way: **source file → postings → listings → database**.
@@ -56,6 +69,8 @@ Data flows one way: **source file → postings → listings → database**.
 | `internal/source` | The `Adapter` interface | `listing` |
 | `internal/source/simplify` | Parse Simplify's `listings.json` | `listing` |
 | `internal/source/speedyapply` | Parse SpeedyApply's Markdown tables | `listing` |
+| `internal/feed` | Turns a stored listing into a feed card (city summary, openings) | `store` |
+| `internal/web` | HTML page and JSON API for the feed, one shared loader | `feed`, `store` |
 | `internal/store` | All SQL: find/create listings (by job link, then key), save postings, status | `listing` |
 | `internal/ingest` | Fetch with ETag → parse → keep 2027 → group → save → mark missing, in one transaction | all of the above |
 | `internal/db` | Connect, run migrations (`migrations/*.sql`) | — |

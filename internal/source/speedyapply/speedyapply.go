@@ -12,13 +12,19 @@ import (
 	"fmt"
 	"html"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"internship-tracker/internal/listing"
 )
 
 // Adapter implements source.Adapter for SpeedyApply.
-type Adapter struct{}
+type Adapter struct {
+	// Now is the time the file was downloaded; the "Age" column ("23d")
+	// counts back from it. Nil means time.Now. Tests set a fixed time.
+	Now func() time.Time
+}
 
 func (Adapter) Name() string { return "speedyapply" }
 
@@ -28,7 +34,12 @@ var requiredColumns = []string{"Company", "Position", "Location", "Posting"}
 
 // Parse turns README.md into postings. Every row is an open job: SpeedyApply
 // removes rows instead of marking them closed.
-func (Adapter) Parse(body []byte) ([]listing.Posting, error) {
+func (a Adapter) Parse(body []byte) ([]listing.Posting, error) {
+	now := time.Now()
+	if a.Now != nil {
+		now = a.Now()
+	}
+
 	var postings []listing.Posting
 	var columns map[string]int // column name -> index, from the current table's header
 
@@ -48,7 +59,7 @@ func (Adapter) Parse(body []byte) ([]listing.Posting, error) {
 			}
 		case isDivider(cells): // |---|---|
 		default:
-			p, err := parseRow(cells, columns)
+			p, err := parseRow(cells, columns, now)
 			if err != nil {
 				return nil, fmt.Errorf("speedyapply: line %d: %w", n+1, err)
 			}
@@ -58,7 +69,7 @@ func (Adapter) Parse(body []byte) ([]listing.Posting, error) {
 	return postings, nil
 }
 
-func parseRow(cells []string, columns map[string]int) (listing.Posting, error) {
+func parseRow(cells []string, columns map[string]int, now time.Time) (listing.Posting, error) {
 	if len(cells) != len(columns) {
 		return listing.Posting{}, fmt.Errorf("row has %d cells, header has %d", len(cells), len(columns))
 	}
@@ -84,7 +95,26 @@ func parseRow(cells []string, columns map[string]int) (listing.Posting, error) {
 		ApplyURL:        applyURL,
 		DegreeLevel:     listing.DegreeUnknown,
 		Active:          true,
+		PostedAt:        postedAt(cells, columns, now),
 	}, nil
+}
+
+var age = regexp.MustCompile(`^(\d+)d$`) // "23d"
+
+// postedAt turns the Age column into a date: "23d" downloaded at noon on
+// Nov 8 is Oct 16. If the column is missing or unreadable the date is
+// unknown (zero); that only affects sorting, so it isn't worth failing for.
+func postedAt(cells []string, columns map[string]int, now time.Time) time.Time {
+	i, ok := columns["Age"]
+	if !ok {
+		return time.Time{}
+	}
+	m := age.FindStringSubmatch(text(cells[i]))
+	if m == nil {
+		return time.Time{}
+	}
+	days, _ := strconv.Atoi(m[1])
+	return now.AddDate(0, 0, -days)
 }
 
 func headerColumns(cells []string) (map[string]int, error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -30,15 +31,19 @@ const (
 	StatusClosed = "closed" // a source explicitly said closed
 )
 
-// SaveListing records one listing from one source. Running it twice with the
-// same input changes nothing the second time except last_seen_at.
-func (s *Store) SaveListing(ctx context.Context, sourceID int64, l listing.Listing) (Outcome, error) {
-	listingID, oldStatus, err := s.findOrCreateListing(ctx, l)
+// SaveListing records one listing from one source. firstLoad says this is
+// the source's first-ever ingest (see Source.FirstLoad). Running it twice
+// with the same input changes nothing the second time except last_seen_at.
+func (s *Store) SaveListing(ctx context.Context, sourceID int64, l listing.Listing, firstLoad bool) (Outcome, error) {
+	listingID, oldStatus, err := s.findOrCreateListing(ctx, l, firstLoad)
 	if err != nil {
 		return "", err
 	}
 	if listingID == 0 {
 		return OutcomeIgnored, nil
+	}
+	if err := s.notePostedAt(ctx, listingID, l.PostedAt); err != nil {
+		return "", err
 	}
 
 	postingsChanged := false
@@ -74,7 +79,7 @@ func (s *Store) SaveListing(ctx context.Context, sourceID int64, l listing.Listi
 //  2. by dedupe key: same company + title + job type + season
 //  3. not found: create it, but only if a posting is active (we only start
 //     tracking open jobs); otherwise return id 0.
-func (s *Store) findOrCreateListing(ctx context.Context, l listing.Listing) (id int64, oldStatus string, err error) {
+func (s *Store) findOrCreateListing(ctx context.Context, l listing.Listing, firstLoad bool) (id int64, oldStatus string, err error) {
 	id, oldStatus, err = s.findByJobLink(ctx, l)
 	if err != nil || id != 0 {
 		return id, oldStatus, err
@@ -105,11 +110,11 @@ func (s *Store) findOrCreateListing(ctx context.Context, l listing.Listing) (id 
 	var old *string
 	err = s.db.QueryRow(ctx, `
 		WITH old AS (SELECT status FROM listings WHERE dedupe_key = $1)
-		INSERT INTO listings (dedupe_key, company_id, title, job_type, season, degree_level)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO listings (dedupe_key, company_id, title, job_type, season, degree_level, posted_at, from_first_load)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (dedupe_key) DO UPDATE SET last_seen_at = now()
 		RETURNING id, (SELECT status FROM old)`,
-		l.Key, companyID, l.Title, l.JobType, l.Season, l.DegreeLevel,
+		l.Key, companyID, l.Title, l.JobType, l.Season, l.DegreeLevel, nullTime(l.PostedAt), firstLoad,
 	).Scan(&id, &old)
 	if err != nil {
 		return 0, "", fmt.Errorf("upsert listing %q: %w", l.Key, err)
@@ -171,6 +176,29 @@ func (s *Store) findByJobLink(ctx context.Context, l listing.Listing) (id int64,
 	return m.id, m.status, nil
 }
 
+// notePostedAt moves a listing's posted date earlier if this source says
+// the job was posted before any source we'd heard from.
+func (s *Store) notePostedAt(ctx context.Context, listingID int64, postedAt time.Time) error {
+	if postedAt.IsZero() {
+		return nil
+	}
+	// LEAST ignores NULL, so an unknown date is simply replaced.
+	_, err := s.db.Exec(ctx,
+		`UPDATE listings SET posted_at = LEAST(posted_at, $2) WHERE id = $1`, listingID, postedAt)
+	if err != nil {
+		return fmt.Errorf("note posted date of listing %d: %w", listingID, err)
+	}
+	return nil
+}
+
+// nullTime sends a zero time.Time as NULL ("unknown").
+func nullTime(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
+}
+
 // upsertCompany returns the id of the company, creating it if needed.
 func (s *Store) upsertCompany(ctx context.Context, name string) (int64, error) {
 	var id int64
@@ -205,13 +233,14 @@ func (s *Store) upsertPosting(ctx context.Context, listingID, sourceID int64, p 
 			SELECT apply_url, locations, active, missing_since FROM listing_sources
 			WHERE listing_id = $1 AND source_id = $2 AND source_listing_id = $3
 		)
-		INSERT INTO listing_sources (listing_id, source_id, source_listing_id, apply_url, locations, active, job_link)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO listing_sources (listing_id, source_id, source_listing_id, apply_url, locations, active, job_link, posted_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (listing_id, source_id, source_listing_id) DO UPDATE SET
 			apply_url     = EXCLUDED.apply_url,
 			locations     = EXCLUDED.locations,
 			active        = EXCLUDED.active,
 			job_link      = EXCLUDED.job_link,
+			posted_at     = EXCLUDED.posted_at,
 			missing_since = NULL, -- we just saw it
 			last_seen_at  = now()
 		RETURNING NOT EXISTS (
@@ -219,7 +248,7 @@ func (s *Store) upsertPosting(ctx context.Context, listingID, sourceID int64, p 
 			WHERE (old.apply_url, old.locations, old.active) = ($4, $5::text[], $6)
 			  AND old.missing_since IS NULL
 		)`,
-		listingID, sourceID, p.SourceListingID, p.ApplyURL, locations, p.Active, jobLink,
+		listingID, sourceID, p.SourceListingID, p.ApplyURL, locations, p.Active, jobLink, nullTime(p.PostedAt),
 	).Scan(&changed)
 	if err != nil {
 		return false, fmt.Errorf("upsert posting %q: %w", p.SourceListingID, err)

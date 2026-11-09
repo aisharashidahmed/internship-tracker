@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"internship-tracker/internal/listing"
 )
@@ -60,5 +61,18 @@ func TestParseFailsLoudlyOnFormatChange(t *testing.T) {
 	extraCell := "| Company | Position | Location | Posting | Age |\n|---|---|---|---|---|\n| a | b | c | x | y | z |\n"
 	if _, err := (Adapter{}).Parse([]byte(extraCell)); err == nil {
 		t.Error("want an error when a row has more cells than the header")
+	}
+}
+
+func TestParsePostedDateFromAge(t *testing.T) {
+	body, _ := os.ReadFile("testdata/README.md")
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	got, err := Adapter{Now: func() time.Time { return now }}.Parse(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// TikTok's row says "2d": downloaded Nov 8, so posted Nov 6.
+	if want := time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC); !got[0].PostedAt.Equal(want) {
+		t.Errorf("TikTok posted %v, want %v", got[0].PostedAt, want)
 	}
 }

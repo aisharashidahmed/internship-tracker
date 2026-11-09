@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -143,7 +145,7 @@ func stripeListing(active bool, companyName string) listing.Listing {
 func save(t *testing.T, s *Store, l listing.Listing) Outcome {
 	t.Helper()
 	sourceID := scalar[int64](t, s, `SELECT id FROM sources WHERE name = 'simplify'`)
-	got, err := s.SaveListing(context.Background(), sourceID, l)
+	got, err := s.SaveListing(context.Background(), sourceID, l, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +248,7 @@ func saveFrom(t *testing.T, s *Store, sourceName string, postings ...listing.Pos
 	sourceID := scalar[int64](t, s, `SELECT id FROM sources WHERE name = $1`, sourceName)
 	var outcomes []Outcome
 	for _, l := range listing.Group(postings) {
-		o, err := s.SaveListing(context.Background(), sourceID, l)
+		o, err := s.SaveListing(context.Background(), sourceID, l, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -407,5 +409,68 @@ func TestDB_StatusAndClosedAtAgree(t *testing.T) {
 	      VALUES ($1, 'SWE Intern', 'internship', '', 'unknown', 'k', 'stale', now())`, companyID)
 	if err == nil {
 		t.Error("a stale listing with closed_at was accepted; the CHECK should reject it")
+	}
+}
+
+// --- Slice 4: feed order ---
+
+func TestFeed_Order(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	simplifyID := scalar[int64](t, s, `SELECT id FROM sources WHERE name = 'simplify'`)
+	speedyID := scalar[int64](t, s, `SELECT id FROM sources WHERE name = 'speedyapply'`)
+	daysAgo := func(n int) time.Time { return time.Now().AddDate(0, 0, -n) }
+
+	save := func(sourceID int64, firstLoad bool, id, title string, posted time.Time) {
+		t.Helper()
+		l := listing.Group([]listing.Posting{{
+			SourceListingID: id, Company: "Acme", Title: title, JobType: listing.Internship,
+			Season: "Summer 2027", ApplyURL: "https://acme.com/jobs/" + id + "0000", Active: true, PostedAt: posted,
+		}})[0]
+		if _, err := s.SaveListing(ctx, sourceID, l, firstLoad); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// First ingest: everything gets the same first_seen_at, so posted date decides.
+	save(simplifyID, true, "1", "Older", daysAgo(5))
+	save(simplifyID, true, "2", "Newer", daysAgo(1))
+	save(simplifyID, true, "3", "No date", time.Time{})
+	save(speedyID, true, "4", "Will go stale", daysAgo(0))
+	// A later run: new to us right now, so it's the freshest, whatever its posted date.
+	save(simplifyID, false, "5", "Found later", daysAgo(30))
+	markMissing(t, s, "speedyapply") // "Will go stale" vanished from SpeedyApply
+
+	feed, err := s.Feed(ctx, 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, l := range feed {
+		got = append(got, l.Title)
+	}
+	want := []string{"Found later", "Newer", "Older", "No date", "Will go stale"}
+	if strings.Join(got, ", ") != strings.Join(want, ", ") {
+		t.Errorf("feed order:\n got  %q\n want %q", got, want)
+	}
+	if len(feed[0].Postings) != 1 || feed[0].Postings[0].Source != "simplify" {
+		t.Errorf("first listing's postings = %+v, want one from simplify", feed[0].Postings)
+	}
+}
+
+func TestSave_EarlierPostedDateWins(t *testing.T) {
+	s := newTestStore(t)
+	early := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	late := time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC)
+
+	p := simplifyFigma
+	p.PostedAt = late
+	saveFrom(t, s, "simplify", p)
+	q := speedyPosting("Software Engineer Intern", "https://job-boards.greenhouse.io/figma/jobs/6241542004")
+	q.PostedAt = early
+	saveFrom(t, s, "speedyapply", q)
+
+	if got := scalar[time.Time](t, s, `SELECT posted_at FROM listings`); !got.Equal(early) {
+		t.Errorf("posted_at = %v, want the earlier %v", got, early)
 	}
 }
