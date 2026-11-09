@@ -230,3 +230,21 @@ func TestGroupedCardWithSeasonChips(t *testing.T) {
 		}
 	}
 }
+
+func TestTopCompanies_FilterFirstAndChip(t *testing.T) {
+	var q store.FeedQuery
+	_, html := get(t, fakeRecorder{&q}, "/?top=1")
+	if !q.TopOnly {
+		t.Error("?top=1 should reach the query")
+	}
+	tier, role := strings.Index(html, ">Tier<"), strings.Index(html, ">Role<")
+	if tier < 0 || tier > role {
+		t.Error("the Tier group should come first in the sidebar")
+	}
+
+	f := fakeFeed{listings: listings(1)}
+	f.listings[0].TopCompany = true
+	if _, page := get(t, f, "/"); !strings.Contains(page, "★ Top company") {
+		t.Error("a top company's card should show the chip")
+	}
+}

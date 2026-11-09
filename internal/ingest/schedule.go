@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"internship-tracker/internal/source"
+	"internship-tracker/internal/source/simplify"
 	"internship-tracker/internal/store"
 )
 
@@ -26,6 +27,7 @@ func (in *Ingester) RunAll(ctx context.Context, adapters []source.Adapter, opts 
 		report, err := in.Run(ctx, a, opts)
 		results = append(results, Result{Report: report, Err: err})
 	}
+	results = append(results, in.syncSimplifyTopCompanies(ctx, opts))
 	if err := in.Store.SyncIndustries(ctx); err != nil {
 		results = append(results, Result{Report: Report{Source: "industry tags"}, Err: err})
 	}
@@ -69,6 +71,8 @@ func Summary(r Result) string {
 	switch {
 	case r.Err != nil:
 		return fmt.Sprintf("%s: FAILED: %v", rep.Source, r.Err)
+	case rep.Note != "":
+		return fmt.Sprintf("%s: %s in %s", rep.Source, rep.Note, took)
 	case rep.NotModified:
 		return fmt.Sprintf("%s: unchanged (HTTP 304) in %s", rep.Source, took)
 	default:
@@ -84,4 +88,41 @@ func Summary(r Result) string {
 		}
 		return line
 	}
+}
+
+// syncSimplifyTopCompanies reads Simplify's README (its JSON has no FAANG+
+// field) and updates the "simplify-readme" top-company signal. It has its
+// own ETag, so an unchanged README costs one small request.
+func (in *Ingester) syncSimplifyTopCompanies(ctx context.Context, opts Options) Result {
+	const name = "simplify-readme"
+	start := time.Now()
+	rep := Report{Source: "simplify README (top companies)"}
+	done := func(err error) Result { rep.Took = time.Since(start); return Result{Report: rep, Err: err} }
+
+	f, err := in.Store.SignalFileByName(ctx, name)
+	if err != nil {
+		return done(err)
+	}
+	etag := f.ETag
+	if opts.Force {
+		etag = ""
+	}
+	res, err := fetch(ctx, in.Client, f.URL, etag)
+	if err != nil {
+		return done(err)
+	}
+	if res.NotModified {
+		rep.Note = "unchanged (HTTP 304)"
+		return done(in.Store.MarkSignalFetched(ctx, name, res.ETag))
+	}
+	names, err := simplify.TopCompanies(res.Body)
+	if err != nil {
+		return done(err) // the old signal stays as it was
+	}
+	n, err := in.Store.SyncTopCompanies(ctx, name, names)
+	if err != nil {
+		return done(err)
+	}
+	rep.Note = fmt.Sprintf("%d top companies marked, %d of them with listings here", len(names), n)
+	return done(in.Store.MarkSignalFetched(ctx, name, res.ETag))
 }

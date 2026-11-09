@@ -22,6 +22,8 @@ type RoleCard struct {
 	// the same color on every page and device.
 	Initial string `json:"initial"`
 	Color   int    `json:"color"`
+	// TopCompany: a source flags the company as a top company (FAANG+).
+	TopCompany bool `json:"top_company"`
 	// Roles and Industries are the union over the seasons, for the chips.
 	Roles      []string `json:"roles"`
 	Industries []string `json:"industries"`
@@ -49,7 +51,7 @@ func Group(listings []store.FeedListing, newSince *time.Time, now time.Time, loc
 		}
 		cards = append(cards, RoleCard{
 			Key: l.GroupKey, Company: l.Company, Title: l.Title,
-			Initial: initial(l.Company), Color: CompanyColor(l.Company),
+			Initial: initial(l.Company), Color: CompanyColor(l.Company), TopCompany: l.TopCompany,
 			Roles: c.Roles, Industries: c.Industries, Seasons: []Card{c},
 		})
 	}

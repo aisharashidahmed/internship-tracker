@@ -14,3 +14,9 @@ type Adapter interface {
 	// Parse converts the raw file body into postings, one per season.
 	Parse(body []byte) ([]listing.Posting, error)
 }
+
+// TopSignaler is an Adapter whose postings can flag top companies
+// (Posting.TopCompany). TopSignal names the signal, e.g. "speedyapply-faang".
+type TopSignaler interface {
+	TopSignal() string
+}

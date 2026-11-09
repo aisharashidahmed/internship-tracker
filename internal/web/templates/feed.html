@@ -136,6 +136,13 @@
       <div class="sheet-head"><h2>Filters</h2><button class="close" type="button" data-close aria-label="Close filters">×</button></div>
 
       <div class="fgroup">
+        <span class="label">Tier</span>
+        <div class="chips">
+          <label class="pick"><input type="checkbox" name="top" value="1"{{if .Filters.TopOnly}} checked{{end}}><span>★ Top companies</span></label>
+        </div>
+      </div>
+
+      <div class="fgroup">
         <div class="seg" role="radiogroup" aria-label="Job type">
           {{range .JobTypeOptions}}<label><input type="radio" name="type" value="{{.Value}}"{{if .On}} checked{{end}}><span>{{.Label}}</span></label>{{end}}
         </div>
@@ -196,6 +203,7 @@
           </div>
 
           <div class="chips">
+            {{if $c.TopCompany}}<span class="chip top">★ Top company</span>{{end}}
             {{range $c.Roles}}<span class="chip role-{{.}}">{{roleLabel .}}</span>{{end}}
             {{range $c.Industries}}<span class="chip industry-{{.}}">{{industryLabel .}}</span>{{end}}
           </div>

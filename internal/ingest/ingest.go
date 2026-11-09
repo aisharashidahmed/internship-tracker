@@ -54,6 +54,7 @@ type Report struct {
 	Postings     int  // postings for the target year after parsing
 	Counts       map[store.Outcome]int
 	Merges       store.MergeReport // listings merged or kept apart after a rule change
+	Note         string            // set for steps that don't save listings, e.g. "33 top companies"
 	Took         time.Duration
 }
 
@@ -134,6 +135,20 @@ func (in *Ingester) Run(ctx context.Context, adapter source.Adapter, opts Option
 			return err
 		}
 		report.Counts[store.OutcomeStale] = stale
+
+		// A source that flags top companies (SpeedyApply's FAANG+ section)
+		// updates its own signal: exactly the companies this file flags.
+		if ts, ok := adapter.(source.TopSignaler); ok {
+			var top []string
+			for _, p := range postings {
+				if p.TopCompany {
+					top = append(top, p.Company)
+				}
+			}
+			if _, err := tx.SyncTopCompanies(ctx, ts.TopSignal(), top); err != nil {
+				return err
+			}
+		}
 
 		// Save the ETag in the same transaction, so we only skip next time
 		// if this run's data was actually stored.

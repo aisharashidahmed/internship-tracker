@@ -120,6 +120,12 @@ roles); those others get no role tag rather than a wrong one.
 ("Health", "Medical", ...). `cmd/ingest` prints an **industry review** of
 keyword matches nobody has approved yet; move each to *approved* or *never*.
 
+**Top companies** come only from the sources' own signals: Simplify's README
+marks FAANG+ companies with 🔥 (its JSON has no such field), and SpeedyApply
+has a FAANG+ section. Each signal is stored per company and synced on its own
+(the README has its own ETag). The **Tier → ★ Top companies** filter is first
+in the sidebar; matching cards show a "★ Top company" chip.
+
 **Filters** live in the URL (`?type=internship&role=backend&role=ml&match=all&industry=healthcare`).
 Roles match **any** ("Backend / ML") or **all** ("Backend + ML"); different
 filter groups always combine with AND.

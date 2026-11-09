@@ -26,6 +26,9 @@ func TestParse(t *testing.T) {
 
 	tiktok, citadel, astranis := got[0], got[1], got[2]
 
+	if !tiktok.TopCompany || citadel.TopCompany || astranis.TopCompany {
+		t.Error("only the FAANG+ section's companies are top companies")
+	}
 	if tiktok.Section != "FAANG+" || citadel.Section != "Quant" || astranis.Section != "Other" {
 		t.Errorf("sections = %q, %q, %q; want FAANG+, Quant, Other", tiktok.Section, citadel.Section, astranis.Section)
 	}

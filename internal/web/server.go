@@ -136,6 +136,7 @@ type Filters struct {
 	OnlyNew     bool               `json:"only_new"`         // only listings new since you last looked (logged in)
 	ShowApplied bool               `json:"show_applied"`     // include listings you've applied to (logged in)
 	Search      string             `json:"search,omitempty"` // company or title contains this
+	TopOnly     bool               `json:"top_only"`         // only top companies (the sources' FAANG+)
 }
 
 // jobTypes are the two tabs; the first is the default.
@@ -147,7 +148,7 @@ var jobTypeLabels = map[listing.JobType]string{listing.Internship: "Internships"
 // rejected: an old bookmark should still show something sensible.
 func parseFilters(q url.Values) Filters {
 	f := Filters{JobType: jobTypes[0], MatchAll: q.Get("match") == "all", OnlyNew: q.Get("new") == "1",
-		ShowApplied: q.Get("applied") == "1", Search: strings.TrimSpace(q.Get("q"))}
+		ShowApplied: q.Get("applied") == "1", Search: strings.TrimSpace(q.Get("q")), TopOnly: q.Get("top") == "1"}
 	if len(f.Search) > 100 {
 		f.Search = f.Search[:100] // nobody searches with a paragraph; keep queries cheap
 	}
@@ -187,6 +188,9 @@ func (f Filters) query(page int) string {
 	}
 	if f.Search != "" {
 		v.Set("q", f.Search)
+	}
+	if f.TopOnly {
+		v.Set("top", "1")
 	}
 	if page > 1 {
 		v.Set("page", strconv.Itoa(page))
@@ -243,7 +247,7 @@ func (p Page) IndustryOptions() []Option {
 // Filtered reports whether any filter beyond the tab is on.
 func (p Page) Filtered() bool {
 	return len(p.Filters.Roles) > 0 || len(p.Filters.Industries) > 0 || p.Filters.OnlyNew || p.Filters.ShowApplied ||
-		p.Filters.Search != ""
+		p.Filters.Search != "" || p.Filters.TopOnly
 }
 
 // HereURL is this page's own address, so "Mark all as seen" can come back.
@@ -319,7 +323,7 @@ func (f Filters) feedQuery(newSince *time.Time, userID int64) store.FeedQuery {
 	return store.FeedQuery{
 		JobType: f.JobType, Roles: f.Roles, MatchAllRoles: f.MatchAll, Industries: f.Industries,
 		OnlyNew: f.OnlyNew && newSince != nil, NewSince: newSince,
-		UserID: userID, ShowApplied: f.ShowApplied && userID != 0, Search: f.Search,
+		UserID: userID, ShowApplied: f.ShowApplied && userID != 0, Search: f.Search, TopOnly: f.TopOnly,
 	}
 }
 

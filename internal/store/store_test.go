@@ -1469,3 +1469,45 @@ func TestFeed_OldDiscoverySortsByPostedDate(t *testing.T) {
 		t.Error("the 69-day-old discovery should still be New for you")
 	}
 }
+
+// --- Top companies ---
+
+func TestDB_TopSignalIsUniquePerCompany(t *testing.T) {
+	s := newTestStore(t)
+	saveFrom(t, s, "simplify", simplifyFigma)
+	id := scalar[int64](t, s, `SELECT id FROM companies`)
+	q := `INSERT INTO company_top_signals (company_id, signal) VALUES ($1, 'simplify-readme')`
+	if err := exec(t, s, q, id); err != nil {
+		t.Fatal(err)
+	}
+	requireUniqueViolation(t, exec(t, s, q, id))
+}
+
+func TestSyncTopCompanies(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	saveFrom(t, s, "simplify", simplifyFigma) // company "Figma"
+	other := simplifyFigma
+	other.Company, other.SourceListingID, other.ApplyURL = "Acme", "a", "https://acme.com/careers"
+	saveFrom(t, s, "simplify", other)
+
+	if n, err := s.SyncTopCompanies(ctx, "simplify-readme", []string{"🔥 Figma", "Unknown Co"}); err != nil || n != 1 {
+		t.Fatalf("simplify sync = %d, %v; want Figma only (Unknown Co has no listings)", n, err)
+	}
+	s.SyncTopCompanies(ctx, "speedyapply-faang", []string{"Figma, Inc."})
+
+	// Simplify drops its marker: Figma stays top through SpeedyApply.
+	s.SyncTopCompanies(ctx, "simplify-readme", nil)
+	if n := scalar[int](t, s, `SELECT count(*) FROM company_top_signals t JOIN companies c ON c.id = t.company_id WHERE c.normalized_name = 'figma'`); n != 1 {
+		t.Errorf("Figma has %d signals, want 1 (SpeedyApply's)", n)
+	}
+
+	// The filter and the card flag.
+	top, _ := s.Feed(ctx, FeedQuery{JobType: listing.Internship, Limit: 10, TopOnly: true})
+	if len(top) != 1 || top[0].Company != "Figma" || !top[0].TopCompany {
+		t.Errorf("top-only feed = %+v, want just Figma, flagged", top)
+	}
+	if n, _ := s.CountFeed(ctx, FeedQuery{JobType: listing.Internship}); n != 2 {
+		t.Errorf("without the filter: %d, want 2", n)
+	}
+}

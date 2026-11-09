@@ -28,6 +28,10 @@ type Adapter struct {
 
 func (Adapter) Name() string { return "speedyapply" }
 
+// TopSignal names the top-company signal this source provides (see
+// store.SyncTopCompanies).
+func (Adapter) TopSignal() string { return "speedyapply-faang" }
+
 // requiredColumns must appear in every table's header. If SpeedyApply
 // renames one, we fail loudly instead of reading the wrong column.
 var requiredColumns = []string{"Company", "Position", "Location", "Posting"}
@@ -65,6 +69,7 @@ func (a Adapter) Parse(body []byte) ([]listing.Posting, error) {
 		default:
 			p, err := parseRow(cells, columns, now)
 			p.Section = section
+			p.TopCompany = section == "FAANG+" // SpeedyApply's own top-company list
 			if err != nil {
 				return nil, fmt.Errorf("speedyapply: line %d: %w", n+1, err)
 			}
